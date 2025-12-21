@@ -56,6 +56,45 @@ for d in destinos:
 # Captura de clic
 mapa_data = st_folium(m, width="100%", height=450)
 
+
+# 5. LÓGICA DE CÁLCULO Y LOGÍSTICA
+if mapa_data.get("last_clicked"):
+    user_lat = mapa_data["last_clicked"]["lat"]
+    user_lon = mapa_data["last_clicked"]["lng"]
+    
+    st.subheader("📊 Análisis de Rentabilidad")
+    
+    resultados = []
+    for d in destinos:
+        dist = geodesic((user_lat, user_lon), (d['lat'], d['lon'])).kilometers
+        # Cálculo de flete (Estimado 2025: $1.200 ARS por km / $1.050 TC)
+        costo_flete_total = (dist * 1200 * (toneladas/30)) / 1050
+        ingreso_bruto = precio_unidad * toneladas
+        margen_neto = ingreso_bruto - costo_flete_total
+        
+        resultados.append({
+            "Destino": d['nombre'],
+            "Distancia (km)": round(dist, 1),
+            "Ingreso Bruto (USD)": round(ingreso_bruto, 2),
+            "Costo Flete (USD)": round(costo_flete_total, 2),
+            "Margen Neto (USD)": round(margen_neto, 2)
+        })
+    
+    df_res = pd.DataFrame(resultados).sort_values(by="Margen Neto (USD)", ascending=False)
+    
+    # Mostrar resultados
+    st.table(df_res)
+    
+    mejor_destino = df_res.iloc[0]['Destino']
+    st.success(f"✅ La opción más rentable es **{mejor_destino}**.")
+    
+    # 6. ASISTENTE IA DE LOGÍSTICA
+    st.divider()
+    st.subheader("🤖 Recomendación de la IA")
+    if st.button("Optimizar Logística"):
+        st.write(f"Analizando cupos en **{mejor_destino}** para camiones desde tu ubicación...")
+        st.info("Sugerencia: Se detectan demoras de 5hs en accesos a Rosario. Se recomienda desviar carga a Bahía Blanca si el precio sube más de 3 USD.")
+
 # --- CUADRO COMPARATIVO DE COMERCIALIZACIÓN ---
 if mapa_data.get("last_clicked"):
     user_lat = mapa_data["last_clicked"]["lat"]
@@ -106,44 +145,5 @@ if mapa_data.get("last_clicked"):
     # Resumen de IA para toma de decisión rápida
     mejor_opcion = df_comparativo.sort_values(by="Resultado Total (USD)", ascending=False).iloc[0]
     st.success(f"💡 **Recomendación:** Te conviene comercializar en **{mejor_opcion['Puerto/Destino']}** con **{mejor_opcion['Empresa Principal']}**. Ganarías un neto de **{mejor_opcion['Resultado Total (USD)']:,.2f} USD**.")
-
-# 5. LÓGICA DE CÁLCULO Y LOGÍSTICA
-if mapa_data.get("last_clicked"):
-    user_lat = mapa_data["last_clicked"]["lat"]
-    user_lon = mapa_data["last_clicked"]["lng"]
-    
-    st.subheader("📊 Análisis de Rentabilidad")
-    
-    resultados = []
-    for d in destinos:
-        dist = geodesic((user_lat, user_lon), (d['lat'], d['lon'])).kilometers
-        # Cálculo de flete (Estimado 2025: $1.200 ARS por km / $1.050 TC)
-        costo_flete_total = (dist * 1200 * (toneladas/30)) / 1050
-        ingreso_bruto = precio_unidad * toneladas
-        margen_neto = ingreso_bruto - costo_flete_total
-        
-        resultados.append({
-            "Destino": d['nombre'],
-            "Distancia (km)": round(dist, 1),
-            "Ingreso Bruto (USD)": round(ingreso_bruto, 2),
-            "Costo Flete (USD)": round(costo_flete_total, 2),
-            "Margen Neto (USD)": round(margen_neto, 2)
-        })
-    
-    df_res = pd.DataFrame(resultados).sort_values(by="Margen Neto (USD)", ascending=False)
-    
-    # Mostrar resultados
-    st.table(df_res)
-    
-    mejor_destino = df_res.iloc[0]['Destino']
-    st.success(f"✅ La opción más rentable es **{mejor_destino}**.")
-    
-    # 6. ASISTENTE IA DE LOGÍSTICA
-    st.divider()
-    st.subheader("🤖 Recomendación de la IA")
-    if st.button("Optimizar Logística"):
-        st.write(f"Analizando cupos en **{mejor_destino}** para camiones desde tu ubicación...")
-        st.info("Sugerencia: Se detectan demoras de 5hs en accesos a Rosario. Se recomienda desviar carga a Bahía Blanca si el precio sube más de 3 USD.")
-
 
 
