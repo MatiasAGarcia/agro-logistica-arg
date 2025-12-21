@@ -56,6 +56,57 @@ for d in destinos:
 # Captura de clic
 mapa_data = st_folium(m, width="100%", height=450)
 
+# --- CUADRO COMPARATIVO DE COMERCIALIZACIÓN ---
+if mapa_data.get("last_clicked"):
+    user_lat = mapa_data["last_clicked"]["lat"]
+    user_lon = mapa_data["last_clicked"]["lng"]
+
+    st.subheader("📊 Comparativa de Destinos Sugeridos")
+    st.markdown("Cálculos basados en precios de pizarra y tarifas de flete estimadas para diciembre 2025.")
+
+    analisis = []
+    for d in destinos:
+        # 1. Calcular distancia real desde el punto del mapa
+        distancia_km = geodesic((user_lat, user_lon), (d['lat'], d['lon'])).kilometers
+        
+        # 2. Lógica de Costos (Valores promedio Argentina 2025)
+        # Estimamos un flete de $1.350 ARS por km/tonelada
+        costo_flete_usd_tn = (distancia_km * 1350) / 1050  # Convertido a USD (TC 1050)
+        
+        # 3. Cálculo de Ingresos
+        precio_final_tn = precio_unidad - costo_flete_usd_tn
+        total_operacion = precio_final_tn * toneladas
+
+        analisis.append({
+            "Puerto/Destino": d['nombre'],
+            "Empresa Principal": d['operador'],
+            "Distancia (km)": f"{distancia_km:.1f} km",
+            "Costo Flete (USD/tn)": f"US$ {costo_flete_usd_tn:.2f}",
+            "Precio Neto (USD/tn)": f"US$ {precio_final_tn:.2f}",
+            "Resultado Total (USD)": total_operacion
+        })
+
+    # Crear DataFrame para la tabla
+    df_comparativo = pd.DataFrame(analisis)
+
+    # Mostrar la tabla con formato destacado
+    st.dataframe(
+        df_comparativo.sort_values(by="Resultado Total (USD)", ascending=False),
+        column_config={
+            "Resultado Total (USD)": st.column_config.NumberColumn(
+                "Margen Total (USD)",
+                help="Dinero neto estimado tras pagar flete",
+                format="US$ %.2f"
+            ),
+        },
+        hide_index=True,
+        use_container_width=True
+    )
+
+    # Resumen de IA para toma de decisión rápida
+    mejor_opcion = df_comparativo.sort_values(by="Resultado Total (USD)", ascending=False).iloc[0]
+    st.success(f"💡 **Recomendación:** Te conviene comercializar en **{mejor_opcion['Puerto/Destino']}** con **{mejor_opcion['Empresa Principal']}**. Ganarías un neto de **{mejor_opcion['Resultado Total (USD)']:,.2f} USD**.")
+
 # 5. LÓGICA DE CÁLCULO Y LOGÍSTICA
 if mapa_data.get("last_clicked"):
     user_lat = mapa_data["last_clicked"]["lat"]
@@ -93,5 +144,6 @@ if mapa_data.get("last_clicked"):
     if st.button("Optimizar Logística"):
         st.write(f"Analizando cupos en **{mejor_destino}** para camiones desde tu ubicación...")
         st.info("Sugerencia: Se detectan demoras de 5hs en accesos a Rosario. Se recomienda desviar carga a Bahía Blanca si el precio sube más de 3 USD.")
+
 
 
