@@ -1,0 +1,43 @@
+import streamlit as st
+import pandas as pd
+
+# Título y configuración
+st.set_page_config(page_title="AgroLogística Argentina 2025", layout="wide")
+st.title("🌾 Plataforma de Comercialización y Logística Agrícola")
+
+# 1. ENTRADA DE DATOS DEL USUARIO
+with st.sidebar:
+    st.header("Ubicación del Lote")
+    provincia = st.selectbox("Provincia", ["Santa Fe", "Córdoba", "Buenos Aires", "La Pampa"])
+    localidad = st.text_input("Localidad Próxima", "Venado Tuerto")
+    tipo_grano = st.selectbox("Grano", ["Soja", "Maíz", "Trigo", "Girasol"])
+    toneladas = st.number_input("Toneladas a comercializar", min_value=1, value=30)
+
+# 2. LÓGICA DE IA (Simulada para el prototipo)
+st.subheader(f"Análisis de Destinos para {tipo_grano} en {localidad}")
+
+# Datos simulados de destinos (Esto luego se conecta a APIs de precios de pizarras)
+data = {
+    'Destino/Puerto': ['Rosario (Norte)', 'Bahía Blanca', 'Quequén', 'Acopio Local'],
+    'Empresa': ['Viterra', 'Cargill', 'Bunge', 'Cooperativa local'],
+    'Precio Bruto (USD/tn)': [285, 292, 290, 275],
+    'Distancia (km)': [165, 580, 620, 25],
+    'Costo Flete (ARS/tn)': [12500, 42000, 45000, 4500]
+}
+
+df = pd.DataFrame(data)
+
+# Cálculo de rentabilidad neta (IA simple)
+df['Margen Neto Est.'] = df['Precio Bruto (USD/tn)'] - (df['Costo Flete (ARS/tn)'] / 1050) # Conversión dólar simbólica
+
+# Mostrar comparativa
+st.dataframe(df.sort_values(by='Margen Neto Est.', ascending=False))
+
+# 3. OPTIMIZACIÓN LOGÍSTICA
+st.divider()
+st.subheader("🚚 Optimización de Logística")
+opcion_elegida = st.selectbox("Seleccione el destino aprobado:", df['Destino/Puerto'])
+
+if st.button("Optimizar Ruta y Buscar Camiones"):
+    st.success(f"Buscando transporte disponible para tramo {localidad} -> {opcion_elegida}...")
+    st.info("Sugerencia IA: El puerto de Rosario tiene una demora de descarga de 4hs. Se recomienda cupo nocturno.")
