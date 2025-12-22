@@ -112,7 +112,17 @@ if mapa_data.get("last_clicked"):
         cant_camiones = int((toneladas // capacidad_camion) + (1 if toneladas % capacidad_camion > 0 else 0))
         
         st.metric("Camiones Necesarios", f"{cant_camiones} viajes")
-        costo_flete_ars = cant_camiones * mejor_opcion['Distancia (km)'] * 1350
+       with col_log1:
+        st.subheader("📦 Gestión de Flota")
+        capacidad_camion = 30
+        cant_camiones = int((toneladas // capacidad_camion) + (1 if toneladas % capacidad_camion > 0 else 0))
+        
+        st.metric("Camiones Necesarios", f"{cant_camiones} viajes")
+        
+        # CORRECCIÓN AQUÍ: Forzamos que la distancia sea flotante antes de multiplicar
+        dist_final = float(mejor_opcion['Distancia (km)'])
+        costo_flete_ars = cant_camiones * dist_final * 1350
+        
         st.write(f"Costo operativo flete: **ARS {costo_flete_ars:,.0f}**")
 
     with col_log2:
@@ -142,6 +152,7 @@ if mapa_data.get("last_clicked"):
 
 else:
     st.info("👆 Por favor, haz clic en un punto del mapa para calcular la logística desde tu campo. El punto de tu lote aparecerá marcado.")
+
 
 
 
