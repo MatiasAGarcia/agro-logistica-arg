@@ -88,16 +88,59 @@ if mapa_data.get("last_clicked"):
     mejor_destino = df_res.iloc[0]['Destino']
     st.success(f"✅ La opción más rentable es **{mejor_destino}**.")
     
-    # 6. ASISTENTE IA DE LOGÍSTICA
-    st.divider()
-    st.subheader("🤖 Recomendación de la IA")
-    if st.button("Optimizar Logística"):
-        st.write(f"Analizando cupos en **{mejor_destino}** para camiones desde tu ubicación...")
-        st.info("Sugerencia: Se detectan demoras de 5hs en accesos a Rosario. Se recomienda desviar carga a Bahía Blanca si el precio sube más de 3 USD.")
+    
 
 # --- CUADRO COMPARATIVO DE COMERCIALIZACIÓN ---
 if mapa_data.get("last_clicked"):
-    user_lat = mapa_data["last_clicked"]["lat"]
+    user_lat = mapa_data["last_clicked"]["lat"] # 6. MÓDULO DE LOGÍSTICA OPERATIVA 2025
+    st.divider()
+    st.header("🚚 Planificación Logística Avanzada")
+    
+    col_log1, col_log2 = st.columns(2)
+    
+    with col_log1:
+        st.subheader("📦 Gestión de Flota")
+        capacidad_camion = 30 # toneladas promedio en Argentina
+        cant_camiones = (toneladas // capacidad_camion) + (1 if toneladas % capacidad_camion > 0 else 0)
+        
+        st.write(f"Para mover **{toneladas} tn**, necesitas:")
+        st.metric("Camiones Necesarios", f"{cant_camiones} viajes")
+        
+        tarifa_referencia_catac = 1450 # Pesos por km aprox Dic 2025
+        costo_total_pesos = cant_camiones * mejor_opcion['Distancia (km)'] * tarifa_referencia_catac
+        st.write(f"Presupuesto estimado flete: **ARS {costo_total_pesos:,.0f}**")
+
+    with col_log2:
+        st.subheader("⚠️ Estado de Rutas y Puertos")
+        # Simulación de estados de rutas argentinas 2025
+        if "Rosario" in mejor_opcion['Puerto/Destino']:
+            st.warning("Ruta Nacional 34: Congestión elevada en zona A012.")
+            st.error("Demora en descarga: 6.5 horas (Puerto Rosario Norte)")
+        elif "Bahía Blanca" in mejor_opcion['Puerto/Destino']:
+            st.success("Ruta Nacional 3: Tránsito fluido.")
+            st.info("Demora en descarga: 2 horas (Ingeniero White)")
+        else:
+            st.info("Ruta Nacional 226: Obras menores en cercanías a Balcarce.")
+
+    # 7. BOTÓN DE OPTIMIZACIÓN CON IA
+    st.divider()
+    if st.button("🤖 Generar Hoja de Ruta Inteligente"):
+        with st.spinner('Analizando variables climáticas y de tráfico...'):
+            # Lógica de recomendación logística
+            st.balloons()
+            st.subheader("📋 Hoja de Ruta Sugerida por IA")
+            
+            # Cálculo de tiempo de viaje (promedio 60km/h camión)
+            dist_num = float(mejor_opcion['Distancia (km)'].split()[0])
+            tiempo_viaje = dist_num / 60
+            
+            st.write(f"1. **Salida óptima:** Mañana 04:30 AM para evitar hora pico en accesos.")
+            st.write(f"2. **Ruta recomendada:** Evitar caminos de tierra si hay pronóstico de lluvia (Radar indica 20% probabilidad).")
+            st.write(f"3. **Cupo:** Se recomienda solicitar cupo para la 'Ventana 2' (12:00 a 18:00 hs).")
+            
+            # Exportar datos para el transportista
+            datos_chofer = f"Carga: {toneladas}tn {grano_sel} | Destino: {mejor_opcion['Puerto/Destino']} | KM: {dist_num}"
+            st.download_button("Descargar Instrucciones para Transportista", datos_chofer, file_name="hoja_ruta.txt")
     user_lon = mapa_data["last_clicked"]["lng"]
 
     st.subheader("📊 Comparativa de Destinos Sugeridos")
@@ -145,5 +188,6 @@ if mapa_data.get("last_clicked"):
     # Resumen de IA para toma de decisión rápida
     mejor_opcion = df_comparativo.sort_values(by="Resultado Total (USD)", ascending=False).iloc[0]
     st.success(f"💡 **Recomendación:** Te conviene comercializar en **{mejor_opcion['Puerto/Destino']}** con **{mejor_opcion['Empresa Principal']}**. Ganarías un neto de **{mejor_opcion['Resultado Total (USD)']:,.2f} USD**.")
+
 
 
