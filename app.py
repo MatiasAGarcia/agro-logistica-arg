@@ -13,8 +13,10 @@ def cargar_datos():
     precios = {"Soja": 298.50, "Maíz": 175.20, "Trigo": 210.00, "Girasol": 315.00}
     try:
         df_acopios = pd.read_excel("acopios_argentina.xlsx")
-    except:
-        st.error("⚠️ No se encontró el archivo acopios_argentina.xlsx en GitHub.")
+        # LIMPIEZA DE COLUMNAS: Quitamos espacios y pasamos a minúsculas
+        df_acopios.columns = df_acopios.columns.str.strip().str.lower()
+    except Exception as e:
+        st.error(f"⚠️ Error al leer el Excel: {e}")
         df_acopios = pd.DataFrame(columns=["nombre", "lat", "lon", "tipo"])
     return precios, df_acopios
 
@@ -29,8 +31,8 @@ with st.sidebar:
     st.metric(f"Pizarra {grano_sel}", f"USD {precio_base}")
 
 # 4. MAPA
-st.title("🌾 Comparador de Destinos Logísticos 2025")
-st.markdown("Haz clic en tu lote para ver acopios (radio 50km) y puertos exportadores.")
+st.title("🌾 Comparador de Destinos Logísticos")
+st.markdown("Haz clic en tu lote para ver acopios (radio 50km) y puertos.")
 
 m = folium.Map(location=[-34.0, -61.0], zoom_start=7)
 
@@ -42,7 +44,8 @@ puertos = [
 ]
 
 for p in puertos:
-    folium.Marker([p['lat'], p['lon']], popup=p['nombre'], icon=folium.Icon(color="red", icon="anchor", prefix="fa")).add_to(m)
+    folium.Marker([p['lat'], p['lon']], popup=p['nombre'], 
+                  icon=folium.Icon(color="red", icon="anchor", prefix="fa")).add_to(m)
 
 mapa_data = st_folium(m, width="100%", height=400)
 
@@ -57,17 +60,29 @@ if mapa_data.get("last_clicked"):
     for p in puertos:
         d = geodesic((u_lat, u_lon), (p['lat'], p['lon'])).kilometers
         costo_flete = (d * 1350) / 1050
-        neto = (precio_base - costo_flete) * toneladas
-        resultados.append({"Destino": p['nombre'], "Tipo": "Puerto", "KM": d, "Neto Total USD": neto})
+        neto_usd = (precio_base - costo_flete) * toneladas
+        resultados.append({"Destino": p['nombre'], "Tipo": "Puerto", "KM": d, "Neto Total USD": neto_usd})
         
-    # Evaluar Acopios del Excel
-    for _, row in df_acopios.iterrows():
-        d = geodesic((u_lat, u_lon), (row['lat'], row['lon'])).kilometers
-        if d <= 50: # Solo si está a menos de 50km
-            # Acopio paga 7 USD menos que el puerto pero el flete es menor
-            costo_flete = (d * 1350) / 1050
-            neto = (precio_base - 7 - costo_flete) * toneladas
-            resultados.append({"Destino": row['nombre'], "Tipo": row['tipo'], "KM": d, "Neto Total USD": neto})
+    # Evaluar Acopios del Excel (con manejo de errores por si las columnas fallan)
+    if not df_acopios.empty and 'lat' in df_acopios.columns:
+        for _, row in df_acopios.iterrows():
+            try:
+                # Usamos los nombres ya normalizados
+                coords_acopio = (row['lat'], row['lon'])
+                d = geodesic((u_lat, u_lon), coords_acopio).kilometers
+                
+                if d <= 50:
+                    costo_flete = (d * 1350) / 1050
+                    # Descuento de 7 USD por ser acopio local vs puerto
+                    neto_usd = (precio_base - 7 - costo_flete) * toneladas
+                    resultados.append({
+                        "Destino": row['nombre'], 
+                        "Tipo": row.get('tipo', 'Acopio'), 
+                        "KM": d, 
+                        "Neto Total USD": neto_usd
+                    })
+            except:
+                continue
             
     if resultados:
         df_res = pd.DataFrame(resultados).sort_values(by="Neto Total USD", ascending=False)
@@ -77,6 +92,6 @@ if mapa_data.get("last_clicked"):
         mejor = df_res.iloc[0]
         st.success(f"✅ La mejor opción es **{mejor['Destino']}** a {mejor['KM']:.1f} km.")
     else:
-        st.warning("No hay acopios cercanos en el Excel para esa zona.")
+        st.warning("No se encontraron resultados. Intenta marcar otro punto en el mapa.")
 
 
