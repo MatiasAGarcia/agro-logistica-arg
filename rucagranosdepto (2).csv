@@ -1,5 +1,4 @@
 pais_id;nom_pais;sag;nom_provincia;departamento;link;cant_acopi;cap_menos2;cap_2a5;cap_5a10;cap_mas10;codset
-32;Argentina;Gestion de la Informacion de la SCCA;SALTA;CERRILLOS;66035;11;5;3;0;0;1,03E+25
 32;Argentina;Gestion de la Informacion de la SCCA;SALTA;CHICOANA;66042;3;3;0;0;0;1,03E+25
 32;Argentina;Gestion de la Informacion de la SCCA;SALTA;LA VINA;66098;0;0;0;0;0;1,03E+25
 32;Argentina;Gestion de la Informacion de la SCCA;CHACO;QUITILIPI;22133;2;2;0;0;0;1,03E+25
@@ -526,3 +525,4 @@ pais_id;nom_pais;sag;nom_provincia;departamento;link;cant_acopi;cap_menos2;cap_2
 32;Argentina;Gestion de la Informacion de la SCCA;BUENOS AIRES;SAN FERNANDO;6749;7;2;0;0;4;1,03E+25
 32;Argentina;Gestion de la Informacion de la SCCA;BUENOS AIRES;CHASCOMUS;6217;11;5;1;0;4;1,03E+25
 32;Argentina;Gestion de la Informacion de la SCCA;BUENOS AIRES;LEZAMA;6466;0;0;0;0;0;1,03E+25
+
