@@ -12,14 +12,12 @@ st.set_page_config(page_title="AgroLogística BCR 2025", layout="wide", page_ico
 @st.cache_data(ttl=3600)
 def obtener_datos_mercado_argentino():
     try:
-        # Dólar Divisa BNA
         res_dolar = requests.get("dolarapi.com")
         dolar = float(res_dolar.json()['venta'])
     except:
         dolar = 1450.0  # Referencia BNA Dic 2025
 
     try:
-        # Precios Pizarra BCR en ARS/tn (Estimados Dic 2025)
         pizarras_ars = {
             "Soja": 494000.0,
             "Maíz": 275400.0,
@@ -50,12 +48,18 @@ with st.sidebar:
     st.metric("Dólar Divisa BNA", f"${dolar_bna:,.2f} ARS")
     st.divider()
     
+    st.header("⚙️ Parámetros de Carga")
     grano_sel = st.selectbox("Seleccione el Grano", list(precios_pizarra.keys()))
     toneladas = st.number_input("Toneladas totales", min_value=1.0, value=30.0)
     
+    st.divider()
+    st.header("🚛 Tarifas de Transporte")
+    # Tarifa manual por KM (Referencia CATAC/FADEEAC)
+    tarifa_km_ars = st.number_input("Tarifa Flete Largo (ARS/KM)", value=1400, step=50)
+    
+    st.divider()
     precio_usd = precios_pizarra[grano_sel]
     st.metric(f"Pizarra {grano_sel} (BCR)", f"US$ {precio_usd}")
-    st.write(f"Valor en pesos: **${(precio_usd * dolar_bna):,.0f} ARS/tn**")
 
 # 4. CUERPO PRINCIPAL Y MAPA
 st.title("🚜 Optimizador Logístico y Comercial")
@@ -78,16 +82,17 @@ if mapa_data.get("last_clicked"):
     u_lat, u_lon = mapa_data["last_clicked"]["lat"], mapa_data["last_clicked"]["lng"]
     resultados = []
     
+    # Cálculo dinámico usando la tarifa manual de la barra lateral
     for p in puertos:
         d = geodesic((u_lat, u_lon), (p['lat'], p['lon'])).kilometers
-        costo_flete_largo = (d * 1400) / dolar_bna 
+        costo_flete_largo = (d * tarifa_km_ars) / dolar_bna 
         resultados.append({"Destino": p['nombre'], "KM": d, "Flete_Largo_TN": costo_flete_largo, "Base_USD": precio_usd})
         
     if not df_acopios.empty:
         for _, row in df_acopios.iterrows():
             d = geodesic((u_lat, u_lon), (row['lat'], row['lon'])).kilometers
             if d <= 50:
-                costo_flete_largo = (d * 1400) / dolar_bna
+                costo_flete_largo = (d * tarifa_km_ars) / dolar_bna
                 resultados.append({"Destino": row['nombre'], "KM": d, "Flete_Largo_TN": costo_flete_largo, "Base_USD": precio_usd - 7.0})
 
     if resultados:
@@ -98,46 +103,35 @@ if mapa_data.get("last_clicked"):
         
         with col_sel:
             opcion = st.selectbox("Seleccione destino para detallar:", df_res["Destino"].tolist())
-            datos_dest = df_res[df_res["Destino"] == opcion].iloc[0]
-            st.write(f"**Distancia al puerto/acopio:** {datos_dest['KM']:.1f} km")
-            st.write(f"**Costo Flete Largo:** US$ {datos_dest['Flete_Largo_TN']:.2f} /tn")
+            datos_dest = df_res[df_res["Destino"] == opcion].iloc
+            st.write(f"**Distancia Calculada:** {datos_dest['KM']:.1f} km")
+            st.write(f"**Flete Largo (Auto):** US$ {datos_dest['Flete_Largo_TN']:.2f} /tn")
 
         with col_gastos:
             with st.expander("🛠️ Ajustar Gastos Manuales", expanded=True):
-                # Gastos Porcentuales
                 c1, c2 = st.columns(2)
                 p_comision = c1.number_input("Comisión (%)", value=2.0, step=0.1)
                 p_merma = c2.number_input("Merma (%)", value=0.5, step=0.1)
                 
-                # Gastos Fijos por Tonelada
                 st.write("**Gastos Fijos (USD/tn)**")
-                c3, c4 = st.columns(2)
-                g_flete_corto = c3.number_input("Flete Corto", value=0.0, help="Costo desde el lote al acopio local")
-                g_laboratorio = c4.number_input("Laboratorio", value=0.1)
-                g_paritarias = c3.number_input("Paritarias", value=0.0)
-                g_otros = c4.number_input("Otros Gastos", value=0.0)
+                g_flete_corto = c1.number_input("Flete Corto (Manual)", value=0.0)
+                g_laboratorio = c2.number_input("Laboratorio", value=0.1)
+                g_paritarias = c1.number_input("Paritarias", value=0.0)
+                g_otros = c2.number_input("Otros Gastos", value=0.0)
 
         # CÁLCULO FINAL
-        valor_bruto_total = datos_dest['Base_USD'] * toneladas
+        v_bruto_total = datos_dest['Base_USD'] * toneladas
+        desc_porcentual = v_bruto_total * ((p_comision + p_merma) / 100)
         
-        # 1. Descuentos porcentuales
-        desc_porcentual = valor_bruto_total * ((p_comision + p_merma) / 100)
+        # Gastos fijos: El Flete Largo se suma a los manuales
+        gastos_tn = datos_dest['Flete_Largo_TN'] + g_flete_corto + g_laboratorio + g_paritarias + g_otros
+        desc_fijos_total = gastos_tn * toneladas
         
-        # 2. Descuentos fijos (Flete Largo + Flete Corto + Lab + Paritarias + Otros)
-        total_gastos_fijos_tn = datos_dest['Flete_Largo_TN'] + g_flete_corto + g_laboratorio + g_paritarias + g_otros
-        desc_fijos_total = total_gastos_fijos_tn * toneladas
-        
-        # 3. Margen Neto
-        neto_final = valor_bruto_total - desc_porcentual - desc_fijos_total
+        neto_final = v_bruto_total - desc_porcentual - desc_fijos_total
         
         st.metric(f"💰 Margen Neto Final en {opcion}", f"US$ {neto_final:,.2f}")
         
-        # Detalle de costos
-        with st.expander("Ver detalle de descuentos"):
-            st.write(f"📉 Gastos Porcentuales: US$ {desc_porcentual:,.2f}")
-            st.write(f"🚚 Flete Largo: US$ {(datos_dest['Flete_Largo_TN'] * toneladas):,.2f}")
-            st.write(f"🚛 Flete Corto: US$ {(g_flete_corto * toneladas):,.2f}")
-            st.write(f"🔬 Laboratorio y Otros: US$ {((g_laboratorio + g_paritarias + g_otros) * toneladas):,.2f}")
-
-else:
-    st.info("👆 Haz clic en el mapa sobre tu lote para comenzar.")
+        with st.expander("Ver detalle del cálculo"):
+            st.write(f"Valor Bruto: US$ {v_bruto_total:,.2f}")
+            st.write(f"Gastos Com. y Merma: - US$ {desc_porcentual:,.2f}")
+            st.write(f"Logística y Otros: - US$ {desc_fijos_total:,.2f}")
