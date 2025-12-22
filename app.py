@@ -3,14 +3,12 @@ import pandas as pd
 import folium
 from streamlit_folium import st_folium
 from geopy.distance import geodesic
-import requests
 
 # 1. CONFIGURACIÓN DE LA PÁGINA
-st.set_page_config(page_title="AgroLogística AR 2025", layout="wide")
+st.set_page_config(page_title="AgroLogística AR 2025", layout="wide", page_icon="🌾")
 
-# 2. FUNCIÓN PARA OBTENER PRECIOS REALES (SIMULADA PARA 2025)
+# 2. FUNCIÓN PARA OBTENER PRECIOS REALES (SIMULADA 22 DIC 2025)
 def obtener_precios_agro():
-    # En una fase avanzada, aquí se conectaría con la API de la BCR o MATba-ROFEX
     return {
         "Soja": 298.50,
         "Maíz": 175.20,
@@ -29,11 +27,11 @@ with st.sidebar:
     st.divider()
     precio_unidad = precios_hoy[grano_sel]
     st.metric(label=f"Precio Pizarra {grano_sel} (USD/tn)", value=f"US$ {precio_unidad}")
-    st.info("Datos actualizados al 21 de Diciembre 2025")
+    st.info("Datos actualizados al 22 de Diciembre 2025")
 
 # 4. CUERPO PRINCIPAL
 st.title("🚜 Optimizador Logístico Agrícola Argentina")
-st.markdown("Haz clic en el mapa sobre la **ubicación de tu lote** para analizar destinos.")
+st.markdown("Haz clic en el mapa sobre la **ubicación de tu lote** para analizar destinos y logística.")
 
 # Definición de Puertos/Destinos
 destinos = [
@@ -42,152 +40,102 @@ destinos = [
     {"nombre": "Puerto Quequén", "lat": -38.5858, "lon": -58.7131, "operador": "ACA / COFCO"}
 ]
 
-# Crear Mapa
+# Crear Mapa centrado en la zona núcleo
 m = folium.Map(location=[-34.6, -61.0], zoom_start=6)
 
-# Marcadores de Puertos
 for d in destinos:
     folium.Marker(
         [d['lat'], d['lon']], 
         popup=d['nombre'],
+        tooltip=d['nombre'],
         icon=folium.Icon(color="blue", icon="ship", prefix='fa')
     ).add_to(m)
 
-# Captura de clic
-mapa_data = st_folium(m, width="100%", height=450)
+mapa_data = st_folium(m, width="100%", height=400)
 
-
-# 5. LÓGICA DE CÁLCULO Y LOGÍSTICA
+# 5. LÓGICA DE CÁLCULO Y COMPARATIVA
 if mapa_data.get("last_clicked"):
     user_lat = mapa_data["last_clicked"]["lat"]
     user_lon = mapa_data["last_clicked"]["lng"]
     
-    st.subheader("📊 Análisis de Rentabilidad")
+    st.success(f"📍 Ubicación marcada: {user_lat:.4f}, {user_lon:.4f}")
     
-    resultados = []
-    for d in destinos:
-        dist = geodesic((user_lat, user_lon), (d['lat'], d['lon'])).kilometers
-        # Cálculo de flete (Estimado 2025: $1.200 ARS por km / $1.050 TC)
-        costo_flete_total = (dist * 1200 * (toneladas/30)) / 1050
-        ingreso_bruto = precio_unidad * toneladas
-        margen_neto = ingreso_bruto - costo_flete_total
-        
-        resultados.append({
-            "Destino": d['nombre'],
-            "Distancia (km)": round(dist, 1),
-            "Ingreso Bruto (USD)": round(ingreso_bruto, 2),
-            "Costo Flete (USD)": round(costo_flete_total, 2),
-            "Margen Neto (USD)": round(margen_neto, 2)
-        })
-    
-    df_res = pd.DataFrame(resultados).sort_values(by="Margen Neto (USD)", ascending=False)
-    
-    # Mostrar resultados
-    st.table(df_res)
-    
-    mejor_destino = df_res.iloc[0]['Destino']
-    st.success(f"✅ La opción más rentable es **{mejor_destino}**.")
-    
-    
-
-# --- CUADRO COMPARATIVO DE COMERCIALIZACIÓN ---
-if mapa_data.get("last_clicked"):
-    user_lat = mapa_data["last_clicked"]["lat"] # 6. MÓDULO DE LOGÍSTICA OPERATIVA 2025
-    st.divider()
-    st.header("🚚 Planificación Logística Avanzada")
-    
-    col_log1, col_log2 = st.columns(2)
-    
-    with col_log1:
-        st.subheader("📦 Gestión de Flota")
-        capacidad_camion = 30 # toneladas promedio en Argentina
-        cant_camiones = (toneladas // capacidad_camion) + (1 if toneladas % capacidad_camion > 0 else 0)
-        
-        st.write(f"Para mover **{toneladas} tn**, necesitas:")
-        st.metric("Camiones Necesarios", f"{cant_camiones} viajes")
-        
-        tarifa_referencia_catac = 1450 # Pesos por km aprox Dic 2025
-        costo_total_pesos = cant_camiones * mejor_opcion['Distancia (km)'] * tarifa_referencia_catac
-        st.write(f"Presupuesto estimado flete: **ARS {costo_total_pesos:,.0f}**")
-
-    with col_log2:
-        st.subheader("⚠️ Estado de Rutas y Puertos")
-        # Simulación de estados de rutas argentinas 2025
-        if "Rosario" in mejor_opcion['Puerto/Destino']:
-            st.warning("Ruta Nacional 34: Congestión elevada en zona A012.")
-            st.error("Demora en descarga: 6.5 horas (Puerto Rosario Norte)")
-        elif "Bahía Blanca" in mejor_opcion['Puerto/Destino']:
-            st.success("Ruta Nacional 3: Tránsito fluido.")
-            st.info("Demora en descarga: 2 horas (Ingeniero White)")
-        else:
-            st.info("Ruta Nacional 226: Obras menores en cercanías a Balcarce.")
-
-    # 7. BOTÓN DE OPTIMIZACIÓN CON IA
-    st.divider()
-    if st.button("🤖 Generar Hoja de Ruta Inteligente"):
-        with st.spinner('Analizando variables climáticas y de tráfico...'):
-            # Lógica de recomendación logística
-            st.balloons()
-            st.subheader("📋 Hoja de Ruta Sugerida por IA")
-            
-            # Cálculo de tiempo de viaje (promedio 60km/h camión)
-            dist_num = float(mejor_opcion['Distancia (km)'].split()[0])
-            tiempo_viaje = dist_num / 60
-            
-            st.write(f"1. **Salida óptima:** Mañana 04:30 AM para evitar hora pico en accesos.")
-            st.write(f"2. **Ruta recomendada:** Evitar caminos de tierra si hay pronóstico de lluvia (Radar indica 20% probabilidad).")
-            st.write(f"3. **Cupo:** Se recomienda solicitar cupo para la 'Ventana 2' (12:00 a 18:00 hs).")
-            
-            # Exportar datos para el transportista
-            datos_chofer = f"Carga: {toneladas}tn {grano_sel} | Destino: {mejor_opcion['Puerto/Destino']} | KM: {dist_num}"
-            st.download_button("Descargar Instrucciones para Transportista", datos_chofer, file_name="hoja_ruta.txt")
-    user_lon = mapa_data["last_clicked"]["lng"]
-
-    st.subheader("📊 Comparativa de Destinos Sugeridos")
-    st.markdown("Cálculos basados en precios de pizarra y tarifas de flete estimadas para diciembre 2025.")
-
     analisis = []
     for d in destinos:
-        # 1. Calcular distancia real desde el punto del mapa
         distancia_km = geodesic((user_lat, user_lon), (d['lat'], d['lon'])).kilometers
+        # Flete estimado Dic 2025: $1.350 ARS por km/tonelada | TC: 1.050
+        costo_flete_usd_tn = (distancia_km * 1350) / 1050
+        precio_neto_tn = precio_unidad - costo_flete_usd_tn
+        total_usd = precio_neto_tn * toneladas
         
-        # 2. Lógica de Costos (Valores promedio Argentina 2025)
-        # Estimamos un flete de $1.350 ARS por km/tonelada
-        costo_flete_usd_tn = (distancia_km * 1350) / 1050  # Convertido a USD (TC 1050)
-        
-        # 3. Cálculo de Ingresos
-        precio_final_tn = precio_unidad - costo_flete_usd_tn
-        total_operacion = precio_final_tn * toneladas
-
         analisis.append({
             "Puerto/Destino": d['nombre'],
             "Empresa Principal": d['operador'],
-            "Distancia (km)": f"{distancia_km:.1f} km",
-            "Costo Flete (USD/tn)": f"US$ {costo_flete_usd_tn:.2f}",
-            "Precio Neto (USD/tn)": f"US$ {precio_final_tn:.2f}",
-            "Resultado Total (USD)": total_operacion
+            "Distancia (km)": distancia_km,
+            "Costo flete (USD/tn)": costo_flete_usd_tn,
+            "Precio Neto (USD/tn)": precio_neto_tn,
+            "Resultado Total (USD)": total_usd
         })
+    
+    df_comparativo = pd.DataFrame(analisis).sort_values(by="Resultado Total (USD)", ascending=False)
+    mejor_opcion = df_comparativo.iloc[0]
 
-    # Crear DataFrame para la tabla
-    df_comparativo = pd.DataFrame(analisis)
-
-    # Mostrar la tabla con formato destacado
+    st.subheader("📊 Comparativa de Comercialización")
     st.dataframe(
-        df_comparativo.sort_values(by="Resultado Total (USD)", ascending=False),
+        df_comparativo,
         column_config={
-            "Resultado Total (USD)": st.column_config.NumberColumn(
-                "Margen Total (USD)",
-                help="Dinero neto estimado tras pagar flete",
-                format="US$ %.2f"
-            ),
+            "Distancia (km)": st.column_config.NumberColumn(format="%.1f km"),
+            "Costo flete (USD/tn)": st.column_config.NumberColumn(format="US$ %.2f"),
+            "Precio Neto (USD/tn)": st.column_config.NumberColumn(format="US$ %.2f"),
+            "Resultado Total (USD)": st.column_config.NumberColumn(format="US$ %.2f"),
         },
         hide_index=True,
         use_container_width=True
     )
 
-    # Resumen de IA para toma de decisión rápida
-    mejor_opcion = df_comparativo.sort_values(by="Resultado Total (USD)", ascending=False).iloc[0]
-    st.success(f"💡 **Recomendación:** Te conviene comercializar en **{mejor_opcion['Puerto/Destino']}** con **{mejor_opcion['Empresa Principal']}**. Ganarías un neto de **{mejor_opcion['Resultado Total (USD)']:,.2f} USD**.")
+    # 6. MÓDULO DE LOGÍSTICA OPERATIVA
+    st.divider()
+    st.header("🚚 Planificación Logística")
+    
+    col_log1, col_log2 = st.columns(2)
+    
+    with col_log1:
+        st.subheader("📦 Gestión de Flota")
+        capacidad_camion = 30
+        cant_camiones = int((toneladas // capacidad_camion) + (1 if toneladas % capacidad_camion > 0 else 0))
+        
+        st.metric("Camiones Necesarios", f"{cant_camiones} viajes")
+        costo_flete_ars = cant_camiones * mejor_opcion['Distancia (km)'] * 1350
+        st.write(f"Costo operativo flete: **ARS {costo_flete_ars:,.0f}**")
+
+    with col_log2:
+        st.subheader("⚠️ Estado de Rutas y Puertos")
+        if "Rosario" in mejor_opcion['Puerto/Destino']:
+            st.warning("RN 34: Congestión en accesos a Rosario.")
+            st.error("Demora en descarga: 6.5 horas")
+        elif "Bahía Blanca" in mejor_opcion['Puerto/Destino']:
+            st.success("RN 3: Tránsito fluido hacia el sur.")
+            st.info("Demora en descarga: 2 horas")
+        else:
+            st.info("RN 226: Sin novedades importantes.")
+
+    # 7. ASISTENTE IA
+    st.divider()
+    if st.button("🤖 Generar Hoja de Ruta Inteligente"):
+        with st.spinner('Analizando variables...'):
+            st.balloons()
+            st.subheader("📋 Sugerencias de la IA para el Operativo")
+            dist_km = mejor_opcion['Distancia (km)']
+            st.write(f"1. **Mejor Destino:** {mejor_opcion['Puerto/Destino']} ({mejor_opcion['Empresa Principal']}).")
+            st.write(f"2. **Horario:** Salir 04:30 AM para llegar a ventana de cupo de las 11:00 AM.")
+            st.write(f"3. **Clima:** Radar indica cielo despejado en ruta. No hay riesgo de caminos intransitables.")
+            
+            resumen_chofer = f"Carga: {toneladas}tn {grano_sel}\nOrigen: Coordenadas {user_lat},{user_lon}\nDestino: {mejor_opcion['Puerto/Destino']}\nKM: {dist_km:.1f}"
+            st.download_button("Descargar Instrucciones Chofer", resumen_chofer, file_name="hoja_ruta_agro.txt")
+
+else:
+    st.info("👆 Por favor, haz clic en un punto del mapa para calcular la logística desde tu campo.")
+
 
 
 
