@@ -20,17 +20,17 @@ def cargar_datos():
 
 precios_hoy, df_acopios = cargar_datos()
 
-# 3. INTERFAZ LATERAL (Datos Generales)
+# 3. INTERFAZ LATERAL
 with st.sidebar:
     st.header("⚙️ Parámetros Generales")
     grano_sel = st.selectbox("Grano", list(precios_hoy.keys()))
-    toneladas = st.number_input("Toneladas", min_value=1.0, value=30.0)
+    toneladas = st.number_input("Toneladas totales", min_value=1.0, value=30.0)
     precio_base = precios_hoy[grano_sel]
     st.metric(f"Pizarra {grano_sel}", f"USD {precio_base}")
 
 # 4. MAPA
-st.title("🌾 Comparador y Calculador de Gastos por Destino")
-st.markdown("1. Haz clic en tu lote. 2. Selecciona un destino para personalizar gastos.")
+st.title("🌾 Calculador Logístico con Gastos Porcentuales")
+st.markdown("Haz clic en el mapa y luego personaliza los gastos de comercialización.")
 
 m = folium.Map(location=[-34.0, -61.0], zoom_start=7)
 puertos = [
@@ -43,63 +43,72 @@ for p in puertos:
 
 mapa_data = st_folium(m, width="100%", height=400)
 
-# 5. CÁLCULOS INICIALES
+# 5. LÓGICA DE CÁLCULO
 if mapa_data.get("last_clicked"):
     u_lat, u_lon = mapa_data["last_clicked"]["lat"], mapa_data["last_clicked"]["lng"]
     resultados = []
     
-    # Procesar Puertos y Acopios
     for p in puertos:
         d = geodesic((u_lat, u_lon), (p['lat'], p['lon'])).kilometers
         costo_flete = (d * 1350) / 1050
-        resultados.append({"Destino": p['nombre'], "KM": d, "Flete USD/tn": costo_flete, "Base": precio_base})
+        resultados.append({"Destino": p['nombre'], "KM": d, "Flete_TN": costo_flete, "Precio_B": precio_base})
         
     for _, row in df_acopios.iterrows():
         d = geodesic((u_lat, u_lon), (row['lat'], row['lon'])).kilometers
         if d <= 50:
             costo_flete = (d * 1350) / 1050
-            resultados.append({"Destino": row['nombre'], "KM": d, "Flete USD/tn": costo_flete, "Base": precio_base - 7})
+            resultados.append({"Destino": row['nombre'], "KM": d, "Flete_TN": costo_flete, "Precio_B": precio_base - 7})
 
     if resultados:
         df_res = pd.DataFrame(resultados)
         
-        # --- NUEVA SECCIÓN: CARGA MANUAL POR DESTINO ---
         st.divider()
         st.subheader("🎯 Personalización de Gastos por Destino")
         
         col1, col2 = st.columns([1, 2])
         
         with col1:
-            destino_elegido = st.selectbox("Seleccione destino para ajustar:", df_res["Destino"].tolist())
+            destino_elegido = st.selectbox("Seleccione destino:", df_res["Destino"].tolist())
             datos_dest = df_res[df_res["Destino"] == destino_elegido].iloc[0]
             
-            st.info(f"Distancia: {datos_dest['KM']:.1f} km")
-            st.info(f"Flete base: US$ {datos_dest['Flete USD/tn']:.2f}/tn")
+            valor_bruto_total = precio_base * toneladas
+            st.write(f"**Valor Bruto:** US$ {valor_bruto_total:,.2f}")
 
         with col2:
-            expander = st.expander("🛠️ Cargar Gastos Manuales para este destino", expanded=True)
+            expander = st.expander("🛠️ Cargar Gastos (Fijos y Porcentuales)", expanded=True)
             with expander:
-                c1, c2, c3 = st.columns(3)
-                g_par = c1.number_input("Paritarias", value=0.0)
-                g_com = c2.number_input("Comisión", value=0.5)
-                g_lab = c3.number_input("Laboratorio", value=0.1)
-                g_merv = c1.number_input("Merma Volátil", value=0.2)
-                g_fcorto = c2.number_input("Flete Corto", value=0.0)
-                g_otros = c3.number_input("Otros", value=0.0)
+                c1, c2 = st.columns(2)
+                # Gastos en Porcentaje (%)
+                porc_comision = c1.number_input("Comisión (%)", min_value=0.0, max_value=10.0, value=2.0, step=0.1)
+                porc_merma = c2.number_input("Merma Volátil (%)", min_value=0.0, max_value=5.0, value=0.5, step=0.1)
                 
-                total_gastos_manuales = sum([g_par, g_com, g_lab, g_merv, g_fcorto, g_otros])
-                
-        # CÁLCULO FINAL ESPECÍFICO
-        neto_final_tn = datos_dest['Base'] - datos_dest['Flete USD/tn'] - total_gastos_manuales
-        total_dolares = neto_final_tn * toneladas
+                # Gastos en USD por Tonelada
+                g_par = c1.number_input("Paritarias (USD/tn)", value=0.0)
+                g_lab = c2.number_input("Laboratorio (USD/tn)", value=0.1)
+                g_fcorto = c1.number_input("Flete Corto (USD/tn)", value=0.0)
+                g_otros = c2.number_input("Otros (USD/tn)", value=0.0)
+
+        # --- CÁLCULOS FINALES CON PORCENTAJES ---
+        # 1. Gastos porcentuales sobre el valor bruto
+        monto_comision = valor_bruto_total * (porc_comision / 100)
+        monto_merma = valor_bruto_total * (porc_merma / 100)
         
-        st.metric(f"💰 Resultado Neto Final en {destino_elegido}", f"US$ {total_dolares:,.2f}", 
-                  delta=f"US$ {neto_final_tn:.2f} por tonelada")
+        # 2. Gastos fijos por tonelada
+        total_gastos_fijos_tn = g_par + g_lab + g_fcorto + g_otros + datos_dest['Flete_TN']
+        monto_gastos_fijos = total_gastos_fijos_tn * toneladas
         
-        # Tabla comparativa general (con flete base)
+        # 3. Neto Final
+        neto_total_usd = valor_bruto_total - monto_comision - monto_merma - monto_gastos_fijos
+        neto_por_tn = neto_total_usd / toneladas
+        
+        # Mostrar Resultados
+        st.metric(f"💰 Resultado Neto Final en {destino_elegido}", f"US$ {neto_total_usd:,.2f}")
+        
         st.write("---")
-        st.write("📋 Comparativa rápida (solo flete base):")
-        df_res["Neto Est."] = (df_res["Base"] - df_res["Flete USD/tn"]) * toneladas
-        st.dataframe(df_res[["Destino", "KM", "Neto Est."]].sort_values("Neto Est.", ascending=False), use_container_width=True)
+        det_col1, det_col2 = st.columns(2)
+        det_col1.write(f"📉 **Descuento Comisión ({porc_comision}%):** US$ {monto_comision:,.2f}")
+        det_col1.write(f"📉 **Descuento Merma ({porc_merma}%):** US$ {monto_merma:,.2f}")
+        det_col2.write(f"🚚 **Costo Flete Total:** US$ {datos_dest['Flete_TN']*toneladas:,.2f}")
+        det_col2.write(f"💵 **Neto por Tonelada:** US$ {neto_por_tn:,.2f}")
 
 
