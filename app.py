@@ -12,12 +12,14 @@ st.set_page_config(page_title="AgroLogística BCR 2025", layout="wide", page_ico
 @st.cache_data(ttl=3600)
 def obtener_datos_mercado_argentino():
     try:
+        # Dólar Divisa BNA (Oficial)
         res_dolar = requests.get("dolarapi.com")
         dolar = float(res_dolar.json()['venta'])
     except:
         dolar = 1450.0  # Referencia BNA Dic 2025
 
     try:
+        # Precios Pizarra BCR en ARS/tn (Dic 2025)
         pizarras_ars = {
             "Soja": 494000.0,
             "Maíz": 275400.0,
@@ -54,16 +56,15 @@ with st.sidebar:
     
     st.divider()
     st.header("🚛 Tarifas de Transporte")
-    # Tarifa manual por KM (Referencia CATAC/FADEEAC)
     tarifa_km_ars = st.number_input("Tarifa Flete Largo (ARS/KM)", value=1400, step=50)
     
     st.divider()
-    precio_usd = precios_pizarra[grano_sel]
-    st.metric(f"Pizarra {grano_sel} (BCR)", f"US$ {precio_usd}")
+    precio_usd_base = precios_pizarra[grano_sel]
+    st.metric(f"Pizarra {grano_sel} (BCR)", f"US$ {precio_usd_base}")
 
 # 4. CUERPO PRINCIPAL Y MAPA
 st.title("🚜 Optimizador Logístico y Comercial")
-st.markdown("Haz clic en el mapa sobre tu **lote** para analizar opciones.")
+st.markdown("Haz clic en el mapa sobre tu **lote** para analizar destinos.")
 
 m = folium.Map(location=[-34.0, -61.0], zoom_start=7)
 puertos = [
@@ -82,18 +83,17 @@ if mapa_data.get("last_clicked"):
     u_lat, u_lon = mapa_data["last_clicked"]["lat"], mapa_data["last_clicked"]["lng"]
     resultados = []
     
-    # Cálculo dinámico usando la tarifa manual de la barra lateral
     for p in puertos:
         d = geodesic((u_lat, u_lon), (p['lat'], p['lon'])).kilometers
         costo_flete_largo = (d * tarifa_km_ars) / dolar_bna 
-        resultados.append({"Destino": p['nombre'], "KM": d, "Flete_Largo_TN": costo_flete_largo, "Base_USD": precio_usd})
+        resultados.append({"Destino": p['nombre'], "KM": d, "Flete_Largo_TN": costo_flete_largo, "Base_USD": precio_usd_base})
         
     if not df_acopios.empty:
         for _, row in df_acopios.iterrows():
             d = geodesic((u_lat, u_lon), (row['lat'], row['lon'])).kilometers
             if d <= 50:
                 costo_flete_largo = (d * tarifa_km_ars) / dolar_bna
-                resultados.append({"Destino": row['nombre'], "KM": d, "Flete_Largo_TN": costo_flete_largo, "Base_USD": precio_usd - 7.0})
+                resultados.append({"Destino": row['nombre'], "KM": d, "Flete_Largo_TN": costo_flete_largo, "Base_USD": precio_usd_base - 7.0})
 
     if resultados:
         df_res = pd.DataFrame(resultados)
@@ -102,10 +102,12 @@ if mapa_data.get("last_clicked"):
         col_sel, col_gastos = st.columns(2)
         
         with col_sel:
-            opcion = st.selectbox("Seleccione destino para detallar:", df_res["Destino"].tolist())
-            datos_dest = df_res[df_res["Destino"] == opcion].iloc
+            opcion_nombre = st.selectbox("Seleccione destino para detallar:", df_res["Destino"].tolist())
+            # CORRECCIÓN DE ACCESO: Buscamos la fila y la convertimos a diccionario
+            datos_dest = df_res[df_res["Destino"] == opcion_nombre].iloc[0].to_dict()
+            
             st.write(f"**Distancia Calculada:** {datos_dest['KM']:.1f} km")
-            st.write(f"**Flete Largo (Auto):** US$ {datos_dest['Flete_Largo_TN']:.2f} /tn")
+            st.write(f"**Flete Largo Est.:** US$ {datos_dest['Flete_Largo_TN']:.2f} /tn")
 
         with col_gastos:
             with st.expander("🛠️ Ajustar Gastos Manuales", expanded=True):
@@ -114,7 +116,7 @@ if mapa_data.get("last_clicked"):
                 p_merma = c2.number_input("Merma (%)", value=0.5, step=0.1)
                 
                 st.write("**Gastos Fijos (USD/tn)**")
-                g_flete_corto = c1.number_input("Flete Corto (Manual)", value=0.0)
+                g_flete_corto = c1.number_input("Flete Corto", value=0.0)
                 g_laboratorio = c2.number_input("Laboratorio", value=0.1)
                 g_paritarias = c1.number_input("Paritarias", value=0.0)
                 g_otros = c2.number_input("Otros Gastos", value=0.0)
@@ -123,15 +125,18 @@ if mapa_data.get("last_clicked"):
         v_bruto_total = datos_dest['Base_USD'] * toneladas
         desc_porcentual = v_bruto_total * ((p_comision + p_merma) / 100)
         
-        # Gastos fijos: El Flete Largo se suma a los manuales
-        gastos_tn = datos_dest['Flete_Largo_TN'] + g_flete_corto + g_laboratorio + g_paritarias + g_otros
-        desc_fijos_total = gastos_tn * toneladas
+        # Suma de fletes y fijos
+        gastos_fijos_tn = datos_dest['Flete_Largo_TN'] + g_flete_corto + g_laboratorio + g_paritarias + g_otros
+        desc_fijos_total = gastos_fijos_tn * toneladas
         
         neto_final = v_bruto_total - desc_porcentual - desc_fijos_total
         
-        st.metric(f"💰 Margen Neto Final en {opcion}", f"US$ {neto_final:,.2f}")
+        st.metric(f"💰 Margen Neto Final en {opcion_nombre}", f"US$ {neto_final:,.2f}")
         
         with st.expander("Ver detalle del cálculo"):
             st.write(f"Valor Bruto: US$ {v_bruto_total:,.2f}")
-            st.write(f"Gastos Com. y Merma: - US$ {desc_porcentual:,.2f}")
-            st.write(f"Logística y Otros: - US$ {desc_fijos_total:,.2f}")
+            st.write(f"Descuentos Comerciales (%): - US$ {desc_porcentual:,.2f}")
+            st.write(f"Descuentos Logísticos y Fijos: - US$ {desc_fijos_total:,.2f}")
+else:
+    st.info("👆 Haz clic en el mapa sobre la ubicación de tu lote para comenzar.")
+
