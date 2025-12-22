@@ -1,5 +1,3 @@
-
-
 import streamlit as st
 import pandas as pd
 import folium
@@ -7,142 +5,98 @@ from streamlit_folium import st_folium
 from geopy.distance import geodesic
 
 # 1. CONFIGURACIÓN DE LA PÁGINA
-st.set_page_config(page_title="AgroLogística AR 2025", layout="wide", page_icon="🌾")
+st.set_page_config(page_title="AgroLogística Pro 2025", layout="wide", page_icon="🌾")
 
-# 2. FUNCIÓN PARA OBTENER PRECIOS (SIMULADA DIC 2025)
+# 2. DATOS DE MERCADO 2025
 def obtener_precios_agro():
-    return {
-        "Soja": 298.50,
-        "Maíz": 175.20,
-        "Trigo": 210.00,
-        "Girasol": 315.00
-    }
+    return {"Soja": 298.50, "Maíz": 175.20, "Trigo": 210.00, "Girasol": 315.00}
 
 precios_hoy = obtener_precios_agro()
 
-# 3. INTERFAZ LATERAL
+# 3. BASE DE DATOS DE ACOPIOS Y COOPERATIVAS (Ejemplos Reales Zona Núcleo)
+# En una fase final, esto se conectaría a un Excel o base de datos del RUCA.
+acopios_locales = [
+    {"nombre": "AFA Pergamino", "lat": -33.8917, "lon": -60.5731, "tipo": "Cooperativa"},
+    {"nombre": "Cargill Venado Tuerto", "lat": -33.7456, "lon": -61.9688, "tipo": "Acopio Privado"},
+    {"nombre": "Gear S.A. Rojas", "lat": -34.1950, "lon": -60.7322, "tipo": "Acopio Privado"},
+    {"nombre": "Coop. Agropecuaria Unión (Justiniano Posse)", "lat": -32.8833, "lon": -62.6667, "tipo": "Cooperativa"},
+    {"nombre": "LDC Junín", "lat": -34.5833, "lon": -60.9500, "tipo": "Acopio Privado"},
+    {"nombre": "ACA San Nicolás", "lat": -33.3333, "lon": -60.2167, "tipo": "Cooperativa"},
+]
+
+destinos_puertos = [
+    {"nombre": "Puerto Rosario", "lat": -32.9468, "lon": -60.6393, "tipo": "Puerto Exportador"},
+    {"nombre": "Puerto Bahía Blanca", "lat": -38.7183, "lon": -62.2664, "tipo": "Puerto Exportador"},
+    {"nombre": "Puerto Quequén", "lat": -38.5858, "lon": -58.7131, "tipo": "Puerto Exportador"}
+]
+
+# 4. INTERFAZ LATERAL
 with st.sidebar:
     st.title("🌾 Configuración")
     grano_sel = st.selectbox("Seleccione el Grano", list(precios_hoy.keys()))
-    toneladas = st.number_input("Toneladas a comercializar", min_value=1.0, value=30.0)
-    
+    toneladas = st.number_input("Toneladas", min_value=1.0, value=30.0)
     st.divider()
     precio_unidad = precios_hoy[grano_sel]
-    st.metric(label=f"Precio Pizarra {grano_sel} (USD/tn)", value=f"US$ {precio_unidad}")
-    st.info("Datos actualizados al 22 de Diciembre 2025")
+    st.metric(label=f"Pizarra {grano_sel} (USD)", value=f"US$ {precio_unidad}")
 
-# 4. CUERPO PRINCIPAL
-st.title("🚜 Optimizador Logístico Agrícola Argentina")
-st.markdown("Haz clic en el mapa sobre la **ubicación de tu lote** para marcarlo y analizar la logística.")
+# 5. MAPA INTERACTIVO
+st.title("🚜 Comparador de Comercialización Cercana")
+st.markdown("Haz clic en tu campo para ver **Puertos** y **Acopios** en un radio de 50km.")
 
-# Definición de Puertos
-destinos_data = [
-    {"nombre": "Puerto Rosario", "lat": -32.9468, "lon": -60.6393, "operador": "Viterra / Cargill"},
-    {"nombre": "Puerto Bahía Blanca", "lat": -38.7183, "lon": -62.2664, "operador": "ADM / Dreyfus"},
-    {"nombre": "Puerto Quequén", "lat": -38.5858, "lon": -58.7131, "operador": "ACA / COFCO"}
-]
+m = folium.Map(location=[-34.0, -61.0], zoom_start=7)
 
-# Creación del Mapa
-m = folium.Map(location=[-34.6, -61.0], zoom_start=6)
+# Dibujar Puertos (Siempre visibles)
+for p in destinos_puertos:
+    folium.Marker([p['lat'], p['lon']], popup=p['nombre'], 
+                  icon=folium.Icon(color="blue", icon="ship", prefix='fa')).add_to(m)
 
-for d in destinos_data:
-    folium.Marker(
-        [d['lat'], d['lon']], 
-        popup=d['nombre'],
-        icon=folium.Icon(color="blue", icon="ship", prefix='fa')
-    ).add_to(m)
-
-# Mostrar mapa y capturar clic
+# Captura de clic
 mapa_data = st_folium(m, width="100%", height=400)
 
-# 5. LÓGICA DE CÁLCULO AL HACER CLIC
+# 6. LÓGICA DE FILTRADO Y COMPARATIVA
 if mapa_data.get("last_clicked"):
-    user_lat = mapa_data["last_clicked"]["lat"]
-    user_lon = mapa_data["last_clicked"]["lng"]
+    u_lat = mapa_data["last_clicked"]["lat"]
+    u_lon = mapa_data["last_clicked"]["lng"]
     
-    st.success(f"📍 Lote marcado en: {user_lat:.4f}, {user_lon:.4f}")
+    st.success(f"📍 Lote detectado. Analizando opciones comerciales...")
     
     analisis = []
-    for d in destinos_data:
-        distancia_km = geodesic((user_lat, user_lon), (d['lat'], d['lon'])).kilometers
-        # Flete 2025: $1.350 ARS/km | TC: 1.050
-        costo_flete_usd_tn = (distancia_km * 1350) / 1050
-        precio_neto_tn = precio_unidad - costo_flete_usd_tn
-        total_usd = precio_neto_tn * toneladas
+    
+    # Unificamos puertos y acopios para el análisis
+    todas_las_opciones = destinos_puertos + acopios_locales
+    
+    for d in todas_las_opciones:
+        dist = geodesic((u_lat, u_lon), (d['lat'], d['lon'])).kilometers
         
-        analisis.append({
-            "Puerto/Destino": d['nombre'],
-            "Empresa Principal": d['operador'],
-            "Distancia_KM": distancia_km,
-            "Flete_USD_TN": costo_flete_usd_tn,
-            "Precio_Neto_TN": precio_neto_tn,
-            "Resultado_Total_USD": total_usd
-        })
-    
-    # Crear DataFrame y ordenar
-    df_comparativo = pd.DataFrame(analisis).sort_values(by="Resultado_Total_USD", ascending=False)
-    
-    # Extraer la mejor opción de forma segura para evitar el TypeError
-    mejor_opcion = df_comparativo.iloc[0]
-
-    st.subheader("📊 Comparativa de Comercialización")
-    st.dataframe(
-        df_comparativo,
-        column_config={
-            "Distancia_KM": st.column_config.NumberColumn("Distancia (km)", format="%.1f"),
-            "Flete_USD_TN": st.column_config.NumberColumn("Flete (USD/tn)", format="US$ %.2f"),
-            "Precio_Neto_TN": st.column_config.NumberColumn("Neto (USD/tn)", format="US$ %.2f"),
-            "Resultado_Total_USD": st.column_config.NumberColumn("Total Neto (USD)", format="US$ %.2f"),
-        },
-        hide_index=True,
-        use_container_width=True
-    )
-
-    # 6. MÓDULO DE LOGÍSTICA OPERATIVA
-    st.divider()
-    st.header("🚚 Planificación Logística")
-    
-    col_log1, col_log2 = st.columns(2)
-    
-    with col_log1:
-        st.subheader("📦 Gestión de Flota")
-        capacidad_camion = 30
-        cant_camiones = int((toneladas // capacidad_camion) + (1 if toneladas % capacidad_camion > 0 else 0))
-        
-        st.metric("Viajes de Camión", f"{cant_camiones}")
-        
-        # Cálculo corregido con conversión explícita a float
-        dist_final = float(mejor_opcion["Distancia_KM"])
-        costo_flete_ars = cant_camiones * dist_final * 1350
-        st.write(f"Costo operativo flete: **ARS {costo_flete_ars:,.0f}**")
-
-    with col_log2:
-        st.subheader("⚠️ Estado de Rutas y Puertos")
-        destino_nombre = mejor_opcion["Puerto/Destino"]
-        if "Rosario" in destino_nombre:
-            st.warning("RN 34: Congestión elevada en accesos.")
-            st.error("Demora en descarga: 6.5 horas")
-        elif "Bahía Blanca" in destino_nombre:
-            st.success("RN 3: Tránsito fluido hacia el sur.")
-            st.info("Demora en descarga: 2 horas")
-        else:
-            st.info("Rutas sin reportes de demoras importantes.")
-
-    # 7. ASISTENTE IA
-    st.divider()
-    if st.button("🤖 Generar Hoja de Ruta Inteligente"):
-        with st.spinner('Analizando variables...'):
-            st.balloons()
-            st.subheader("📋 Sugerencias de la IA")
-            st.write(f"- **Destino sugerido:** {mejor_opcion['Puerto/Destino']}")
-            st.write(f"- **Operativo:** Se necesitan {cant_camiones} camiones de 30tn.")
-            st.write(f"- **Clima:** Radar de zona núcleo indica condiciones aptas para carga.")
+        # FILTRO: Solo puertos O acopios a menos de 50km
+        if d['tipo'] == "Puerto Exportador" or dist <= 50:
+            # Precio diferencial: Acopios suelen pagar 3-5 USD menos que el puerto por logística
+            precio_base = precio_unidad if d['tipo'] == "Puerto Exportador" else precio_unidad - 5
             
-            resumen = f"Carga: {toneladas}tn {grano_sel}\nDestino: {mejor_opcion['Puerto/Destino']}\nDistancia: {float(mejor_opcion['Distancia_KM']):.1f} km"
-            st.download_button("Descargar Instrucciones Chofer", resumen, file_name="hoja_ruta_agro.txt")
-else:
-    st.info("👆 Haz clic en el mapa sobre la ubicación de tu lote para calcular la mejor opción logística.")
-
-
+            flete_usd_tn = (dist * 1350) / 1050
+            neto_tn = precio_base - flete_usd_tn
+            
+            analisis.append({
+                "Destino": d['nombre'],
+                "Tipo": d['tipo'],
+                "Distancia (km)": dist,
+                "Precio Neto (USD/tn)": neto_tn,
+                "Resultado Total (USD)": neto_tn * toneladas
+            })
+    
+    if analisis:
+        df = pd.DataFrame(analisis).sort_values(by="Resultado Total (USD)", ascending=False)
+        
+        st.subheader("📊 Tabla Comparativa Final")
+        st.dataframe(df, column_config={
+            "Distancia (km)": st.column_config.NumberColumn(format="%.1f"),
+            "Precio Neto (USD/tn)": st.column_config.NumberColumn(format="US$ %.2f"),
+            "Resultado Total (USD)": st.column_config.NumberColumn(format="US$ %.2f")
+        }, hide_index=True, use_container_width=True)
+        
+        mejor = df.iloc[0]
+        st.success(f"✅ La opción óptima es **{mejor['Destino']}**. Margen total: **US$ {mejor['Resultado Total (USD)']:,.2f}**")
+    else:
+        st.warning("No se encontraron acopios a menos de 50km. Prueba marcar otro punto.")
 
 
