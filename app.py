@@ -11,25 +11,21 @@ st.set_page_config(page_title="AgroLogística BCR 2025", layout="wide", page_ico
 # 2. FUNCIONES DE MERCADO (DÓLAR BNA DIVISA Y PIZARRA BCR)
 @st.cache_data(ttl=3600)
 def obtener_datos_mercado_argentino():
-    # Obtener Dólar DIVISA VENDEDOR BNA (Referencia oficial para granos)
     try:
-        # Endpoint oficial de DolarApi que refleja el Banco Nación
+        # Dólar Divisa BNA
         res_dolar = requests.get("dolarapi.com")
         dolar = float(res_dolar.json()['venta'])
     except:
-        # Cotización vendedor BNA al 22 de diciembre de 2025
-        dolar = 1450.0  
+        dolar = 1450.0  # Referencia BNA Dic 2025
 
-    # Precios Pizarra BCR (Referencia Rosario en Pesos convertida a USD)
     try:
-        # Valores pizarra estimados Dic 2025 en ARS/tn
+        # Precios Pizarra BCR en ARS/tn (Estimados Dic 2025)
         pizarras_ars = {
             "Soja": 494000.0,
             "Maíz": 275400.0,
             "Trigo": 252350.0,
             "Girasol": 497500.0
         }
-        # Convertimos a USD usando el dólar BNA obtenido
         precios_usd = {k: round(v / dolar, 2) for k, v in pizarras_ars.items()}
     except:
         precios_usd = {"Soja": 340.69, "Maíz": 189.93, "Trigo": 174.03, "Girasol": 343.10}
@@ -48,11 +44,10 @@ def cargar_acopios():
 dolar_bna, precios_pizarra = obtener_datos_mercado_argentino()
 df_acopios = cargar_acopios()
 
-# 3. INTERFAZ LATERAL (Datos Generales)
+# 3. INTERFAZ LATERAL
 with st.sidebar:
     st.title("📈 Monitor BCR / BNA")
     st.metric("Dólar Divisa BNA", f"${dolar_bna:,.2f} ARS")
-    st.caption("Tipo de cambio vendedor para liquidación")
     st.divider()
     
     grano_sel = st.selectbox("Seleccione el Grano", list(precios_pizarra.keys()))
@@ -83,57 +78,66 @@ if mapa_data.get("last_clicked"):
     u_lat, u_lon = mapa_data["last_clicked"]["lat"], mapa_data["last_clicked"]["lng"]
     resultados = []
     
-    # Evaluar Puertos
     for p in puertos:
         d = geodesic((u_lat, u_lon), (p['lat'], p['lon'])).kilometers
-        costo_flete = (d * 1400) / dolar_bna 
-        resultados.append({"Destino": p['nombre'], "KM": d, "Flete_TN": costo_flete, "Base_USD": precio_usd})
+        costo_flete_largo = (d * 1400) / dolar_bna 
+        resultados.append({"Destino": p['nombre'], "KM": d, "Flete_Largo_TN": costo_flete_largo, "Base_USD": precio_usd})
         
-    # Evaluar Acopios Cercanos
     if not df_acopios.empty:
         for _, row in df_acopios.iterrows():
             d = geodesic((u_lat, u_lon), (row['lat'], row['lon'])).kilometers
             if d <= 50:
-                costo_flete = (d * 1400) / dolar_bna
-                resultados.append({"Destino": row['nombre'], "KM": d, "Flete_TN": costo_flete, "Base_USD": precio_usd - 7.0})
+                costo_flete_largo = (d * 1400) / dolar_bna
+                resultados.append({"Destino": row['nombre'], "KM": d, "Flete_Largo_TN": costo_flete_largo, "Base_USD": precio_usd - 7.0})
 
     if resultados:
         df_res = pd.DataFrame(resultados)
         st.divider()
         
-        # CORRECCIÓN: Definimos 2 columnas explícitamente
         col_sel, col_gastos = st.columns(2)
         
         with col_sel:
             opcion = st.selectbox("Seleccione destino para detallar:", df_res["Destino"].tolist())
-            # Acceso seguro a la fila
             datos_dest = df_res[df_res["Destino"] == opcion].iloc[0]
-            st.write(f"**Distancia:** {datos_dest['KM']:.1f} km")
-            st.write(f"**Costo Flete:** US$ {datos_dest['Flete_TN']:.2f} /tn")
+            st.write(f"**Distancia al puerto/acopio:** {datos_dest['KM']:.1f} km")
+            st.write(f"**Costo Flete Largo:** US$ {datos_dest['Flete_Largo_TN']:.2f} /tn")
 
         with col_gastos:
             with st.expander("🛠️ Ajustar Gastos Manuales", expanded=True):
-                # Gastos en porcentaje (%)
-                p_comision = st.number_input("Comisión (%)", value=2.0, step=0.1)
-                p_merma = st.number_input("Merma (%)", value=0.5, step=0.1)
-                # Gastos en USD por Tonelada
-                g_fijo = st.number_input("Otros Gastos (USD/tn)", value=0.1)
+                # Gastos Porcentuales
+                c1, c2 = st.columns(2)
+                p_comision = c1.number_input("Comisión (%)", value=2.0, step=0.1)
+                p_merma = c2.number_input("Merma (%)", value=0.5, step=0.1)
+                
+                # Gastos Fijos por Tonelada
+                st.write("**Gastos Fijos (USD/tn)**")
+                c3, c4 = st.columns(2)
+                g_flete_corto = c3.number_input("Flete Corto", value=0.0, help="Costo desde el lote al acopio local")
+                g_laboratorio = c4.number_input("Laboratorio", value=0.1)
+                g_paritarias = c3.number_input("Paritarias", value=0.0)
+                g_otros = c4.number_input("Otros Gastos", value=0.0)
 
-        # Cálculo Final
+        # CÁLCULO FINAL
         valor_bruto_total = datos_dest['Base_USD'] * toneladas
-        desc_comision = valor_bruto_total * (p_comision / 100)
-        desc_merma = valor_bruto_total * (p_merma / 100)
-        costo_flete_total = datos_dest['Flete_TN'] * toneladas
-        costo_otros_total = g_fijo * toneladas
         
-        neto_final = valor_bruto_total - desc_comision - desc_merma - costo_flete_total - costo_otros_total
+        # 1. Descuentos porcentuales
+        desc_porcentual = valor_bruto_total * ((p_comision + p_merma) / 100)
+        
+        # 2. Descuentos fijos (Flete Largo + Flete Corto + Lab + Paritarias + Otros)
+        total_gastos_fijos_tn = datos_dest['Flete_Largo_TN'] + g_flete_corto + g_laboratorio + g_paritarias + g_otros
+        desc_fijos_total = total_gastos_fijos_tn * toneladas
+        
+        # 3. Margen Neto
+        neto_final = valor_bruto_total - desc_porcentual - desc_fijos_total
         
         st.metric(f"💰 Margen Neto Final en {opcion}", f"US$ {neto_final:,.2f}")
         
-        # Tabla Comparativa Rápida
-        st.write("---")
-        st.subheader("📋 Comparativa Regional (Pizarra - Flete)")
-        df_res["Neto_Est_USD"] = (df_res["Base_USD"] - df_res["Flete_TN"]) * toneladas
-        st.dataframe(df_res[["Destino", "KM", "Neto_Est_USD"]].sort_values("Neto_Est_USD", ascending=False), use_container_width=True)
+        # Detalle de costos
+        with st.expander("Ver detalle de descuentos"):
+            st.write(f"📉 Gastos Porcentuales: US$ {desc_porcentual:,.2f}")
+            st.write(f"🚚 Flete Largo: US$ {(datos_dest['Flete_Largo_TN'] * toneladas):,.2f}")
+            st.write(f"🚛 Flete Corto: US$ {(g_flete_corto * toneladas):,.2f}")
+            st.write(f"🔬 Laboratorio y Otros: US$ {((g_laboratorio + g_paritarias + g_otros) * toneladas):,.2f}")
+
 else:
-    st.info("👆 Haz clic en el mapa sobre tu lote para comenzar a utilizar la calculadora BCR.")
+    st.info("👆 Haz clic en el mapa sobre tu lote para comenzar.")
