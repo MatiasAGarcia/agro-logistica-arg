@@ -5,3 +5,5 @@ streamlit-folium
 geopy
 requests
 openpyxl
+yfinance
+requests
