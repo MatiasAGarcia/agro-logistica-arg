@@ -30,17 +30,14 @@ with st.sidebar:
     st.metric(f"Pizarra {grano_sel}", f"USD {precio_base}")
     
     st.divider()
-    st.subheader("Gastos Manuales Fijos (USD/tn)")
-    # Campos para ingresar gastos manualmente que se aplicarán a TODAS las opciones
+    st.subheader("Gastos Manuales (USD/tn)")
     g_paritarias = st.number_input("Paritarias", value=0.0)
     g_comision = st.number_input("Comisión", value=0.5)
     g_laboratorio = st.number_input("Laboratorio", value=0.1)
     g_merma = st.number_input("Merma Volátil", value=0.2)
     g_otros = st.number_input("Otros Gastos", value=0.0)
     
-    # Suma total de gastos fijos manuales
     gastos_fijos_totales = sum([g_paritarias, g_comision, g_laboratorio, g_merma, g_otros])
-
 
 # 4. MAPA
 st.title("🌾 Comparador de Destinos Logísticos")
@@ -68,7 +65,6 @@ if mapa_data.get("last_clicked"):
     for p in puertos:
         d = geodesic((u_lat, u_lon), (p['lat'], p['lon'])).kilometers
         costo_flete = (d * 1350) / 1050
-        # Incluimos los gastos manuales fijos en el cálculo neto
         neto_usd = (precio_base - costo_flete - gastos_fijos_totales) * toneladas
         resultados.append({"Destino": p['nombre'], "Tipo": "Puerto", "KM": d, "Neto Total USD": neto_usd})
         
@@ -80,7 +76,6 @@ if mapa_data.get("last_clicked"):
                 d = geodesic((u_lat, u_lon), coords_acopio).kilometers
                 if d <= 50:
                     costo_flete = (d * 1350) / 1050
-                    # Descuento local y gastos manuales
                     neto_usd = (precio_base - 7 - costo_flete - gastos_fijos_totales) * toneladas
                     resultados.append({"Destino": row['nombre'], "Tipo": row.get('tipo', 'Acopio'), "KM": d, "Neto Total USD": neto_usd})
             except:
@@ -88,13 +83,13 @@ if mapa_data.get("last_clicked"):
             
     if resultados:
         df_res = pd.DataFrame(resultados).sort_values(by="Neto Total USD", ascending=False)
-        st.subheader(f"📊 Tabla de Rentabilidad (Gastos USD {gastos_fijos_totales:.2f}/tn aplicados)")
+        st.subheader(f"📊 Tabla de Rentabilidad (Gastos USD {gastos_fijos_totales:.2f}/tn)")
         st.dataframe(df_res.style.format({"KM": "{:.1f}", "Neto Total USD": "{:.2f}"}), use_container_width=True)
         
-        mejor = df_res.iloc
+        # CORRECCIÓN AQUÍ: Agregamos [0] para seleccionar la primera fila correctamente
+        mejor = df_res.iloc[0] 
         st.success(f"✅ La mejor opción es **{mejor['Destino']}** a {mejor['KM']:.1f} km.")
     else:
-        st.warning("No se encontraron resultados. Intenta marcar otro punto en el mapa.")
-
+        st.warning("No se encontraron resultados en esa zona.")
 
 
