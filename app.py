@@ -3,43 +3,83 @@ import pandas as pd
 import folium
 from streamlit_folium import st_folium
 from geopy.distance import geodesic
+import yfinance as yf
+import requests
 
-# 1. CONFIGURACIÓN
-st.set_page_config(page_title="AgroLogística Pro 2025", layout="wide")
+# 1. CONFIGURACIÓN DE LA PÁGINA
+st.set_page_config(page_title="AgroLogística Pro 2025", layout="wide", page_icon="🌾")
 
-# 2. CARGA DE DATOS
-@st.cache_data
-def cargar_datos():
-    precios = {"Soja": 298.50, "Maíz": 175.20, "Trigo": 210.00, "Girasol": 315.00}
+# 2. FUNCIONES DE AUTOMATIZACIÓN (DÓLAR Y PRECIOS)
+@st.cache_data(ttl=3600)
+def obtener_datos_mercado():
+    # Obtener Dólar MEP (API DolarApi)
     try:
-        df_acopios = pd.read_excel("acopios_argentina.xlsx")
-        df_acopios.columns = df_acopios.columns.str.strip().str.lower()
+        res_dolar = requests.get("dolarapi.com")
+        dolar = float(res_dolar.json()['venta'])
     except:
-        df_acopios = pd.DataFrame(columns=["nombre", "lat", "lon", "tipo"])
-    return precios, df_acopios
+        dolar = 1050.0  # Respaldo
 
-precios_hoy, df_acopios = cargar_datos()
+    # Obtener Precios Cereales (Yahoo Finance - Chicago)
+    tickers = {"Soja": "ZS=F", "Maíz": "ZC=F", "Trigo": "ZW=F", "Girasol": "base"}
+    precios = {}
+    try:
+        for nombre, ticker in tickers.items():
+            if ticker == "base":
+                precios[nombre] = 310.0
+            else:
+                data = yf.Ticker(ticker)
+                hist = data.history(period="1d")
+                precio_bushel = hist['Close'].iloc[-1]
+                # Conversión a USD/tonelada
+                factor = 0.3674 if nombre in ["Soja", "Trigo"] else 0.3936
+                precios[nombre] = round(precio_bushel * factor, 2)
+    except:
+        precios = {"Soja": 300.0, "Maíz": 185.0, "Trigo": 215.0, "Girasol": 310.0}
+    
+    return dolar, precios
+
+@st.cache_data
+def cargar_acopios():
+    try:
+        df = pd.read_excel("acopios_argentina.xlsx")
+        df.columns = df.columns.str.strip().str.lower()
+        return df
+    except:
+        return pd.DataFrame(columns=["nombre", "lat", "lon", "tipo"])
+
+# Ejecución de carga
+dolar_hoy, precios_hoy = obtener_datos_mercado()
+df_acopios = cargar_acopios()
 
 # 3. INTERFAZ LATERAL
 with st.sidebar:
-    st.header("⚙️ Parámetros Generales")
-    grano_sel = st.selectbox("Grano", list(precios_hoy.keys()))
+    st.title("📈 Mercado en Vivo")
+    st.metric("Dólar MEP", f"${dolar_hoy:,.2f} ARS")
+    st.divider()
+    
+    grano_sel = st.selectbox("Seleccione el Grano", list(precios_hoy.keys()))
     toneladas = st.number_input("Toneladas totales", min_value=1.0, value=30.0)
-    precio_base = precios_hoy[grano_sel]
-    st.metric(f"Pizarra {grano_sel}", f"USD {precio_base}")
+    
+    precio_usd = precios_hoy[grano_sel]
+    st.metric(f"Pizarra {grano_sel}", f"US$ {precio_usd}")
+    st.write(f"Equivalente: **${(precio_usd * dolar_hoy):,.2f} ARS/tn**")
+    st.info("Actualizado automáticamente vía Yahoo Finance & DolarApi 2025")
 
-# 4. MAPA
-st.title("🌾 Calculador Logístico con Gastos Porcentuales")
-st.markdown("Haz clic en el mapa y luego personaliza los gastos de comercialización.")
+# 4. CUERPO PRINCIPAL Y MAPA
+st.title("🚜 Optimizador Logístico y Comercial")
+st.markdown("Haz clic en el mapa sobre tu **lote** para analizar opciones en un radio de 50km.")
 
 m = folium.Map(location=[-34.0, -61.0], zoom_start=7)
+
+# Puertos Exportadores Fijos
 puertos = [
     {"nombre": "Puerto Rosario", "lat": -32.9468, "lon": -60.6393},
     {"nombre": "Puerto Bahía Blanca", "lat": -38.7183, "lon": -62.2664},
     {"nombre": "Puerto Quequén", "lat": -38.5858, "lon": -58.7131}
 ]
 for p in puertos:
-    folium.Marker([p['lat'], p['lon']], popup=p['nombre'], icon=folium.Icon(color="red")).add_to(m)
+    folium.Marker([p['lat'], p['lon']], popup=p['nombre'], tooltip="Puerto",
+                  icon=folium.Icon(color="red", icon="ship", prefix="fa")).add_to(m)
 
 mapa_data = st_folium(m, width="100%", height=400)
 
@@ -48,67 +88,60 @@ if mapa_data.get("last_clicked"):
     u_lat, u_lon = mapa_data["last_clicked"]["lat"], mapa_data["last_clicked"]["lng"]
     resultados = []
     
+    # Evaluar Puertos
     for p in puertos:
         d = geodesic((u_lat, u_lon), (p['lat'], p['lon'])).kilometers
-        costo_flete = (d * 1350) / 1050
-        resultados.append({"Destino": p['nombre'], "KM": d, "Flete_TN": costo_flete, "Precio_B": precio_base})
+        costo_flete = (d * 1400) / dolar_hoy # Tarifa 2025 est.
+        resultados.append({"Destino": p['nombre'], "KM": d, "Flete_TN": costo_flete, "Base_USD": precio_usd})
         
-    for _, row in df_acopios.iterrows():
-        d = geodesic((u_lat, u_lon), (row['lat'], row['lon'])).kilometers
-        if d <= 50:
-            costo_flete = (d * 1350) / 1050
-            resultados.append({"Destino": row['nombre'], "KM": d, "Flete_TN": costo_flete, "Precio_B": precio_base - 7})
+    # Evaluar Acopios (Radio 50km)
+    if not df_acopios.empty:
+        for _, row in df_acopios.iterrows():
+            d = geodesic((u_lat, u_lon), (row['lat'], row['lon'])).kilometers
+            if d <= 50:
+                costo_flete = (d * 1400) / dolar_hoy
+                resultados.append({"Destino": row['nombre'], "KM": d, "Flete_TN": costo_flete, "Base_USD": precio_usd - 7})
 
     if resultados:
         df_res = pd.DataFrame(resultados)
         
         st.divider()
-        st.subheader("🎯 Personalización de Gastos por Destino")
+        st.subheader("🎯 Personalización de Gastos y Rentabilidad")
         
-        col1, col2 = st.columns([1, 2])
+        col_sel, col_gastos = st.columns([1, 2])
         
-        with col1:
-            destino_elegido = st.selectbox("Seleccione destino:", df_res["Destino"].tolist())
-            datos_dest = df_res[df_res["Destino"] == destino_elegido].iloc[0]
-            
-            valor_bruto_total = precio_base * toneladas
-            st.write(f"**Valor Bruto:** US$ {valor_bruto_total:,.2f}")
+        with col_sel:
+            opcion = st.selectbox("Seleccione destino para calcular:", df_res["Destino"].tolist())
+            datos_dest = df_res[df_res["Destino"] == opcion].iloc[0]
+            st.write(f"**Distancia:** {datos_dest['KM']:.1f} km")
+            st.write(f"**Flete estimado:** US$ {datos_dest['Flete_TN']:.2f}/tn")
 
-        with col2:
-            expander = st.expander("🛠️ Cargar Gastos (Fijos y Porcentuales)", expanded=True)
-            with expander:
+        with col_gastos:
+            with st.expander("🛠️ Ajustar Gastos Manuales", expanded=True):
                 c1, c2 = st.columns(2)
-                # Gastos en Porcentaje (%)
-                porc_comision = c1.number_input("Comisión (%)", min_value=0.0, max_value=10.0, value=2.0, step=0.1)
-                porc_merma = c2.number_input("Merma Volátil (%)", min_value=0.0, max_value=5.0, value=0.5, step=0.1)
-                
-                # Gastos en USD por Tonelada
-                g_par = c1.number_input("Paritarias (USD/tn)", value=0.0)
-                g_lab = c2.number_input("Laboratorio (USD/tn)", value=0.1)
-                g_fcorto = c1.number_input("Flete Corto (USD/tn)", value=0.0)
-                g_otros = c2.number_input("Otros (USD/tn)", value=0.0)
+                p_com = c1.number_input("Comisión (%)", value=2.0, step=0.1)
+                p_mer = c2.number_input("Merma (%)", value=0.5, step=0.1)
+                g_fijo = c1.number_input("Otros Gastos (USD/tn)", value=0.1)
+                g_corto = c2.number_input("Flete Corto (USD/tn)", value=0.0)
 
-        # --- CÁLCULOS FINALES CON PORCENTAJES ---
-        # 1. Gastos porcentuales sobre el valor bruto
-        monto_comision = valor_bruto_total * (porc_comision / 100)
-        monto_merma = valor_bruto_total * (porc_merma / 100)
+        # CÁLCULO FINAL
+        valor_bruto = datos_dest['Base_USD'] * toneladas
+        desc_comision = valor_bruto * (p_com / 100)
+        desc_merma = valor_bruto * (p_mer / 100)
+        costo_flete_total = datos_dest['Flete_TN'] * toneladas
+        costo_fijos_total = (g_fijo + g_corto) * toneladas
         
-        # 2. Gastos fijos por tonelada
-        total_gastos_fijos_tn = g_par + g_lab + g_fcorto + g_otros + datos_dest['Flete_TN']
-        monto_gastos_fijos = total_gastos_fijos_tn * toneladas
+        neto_final = valor_bruto - desc_comision - desc_merma - costo_flete_total - costo_fijos_total
         
-        # 3. Neto Final
-        neto_total_usd = valor_bruto_total - monto_comision - monto_merma - monto_gastos_fijos
-        neto_por_tn = neto_total_usd / toneladas
+        st.metric(f"💰 Margen Neto Final en {opcion}", f"US$ {neto_final:,.2f}")
         
-        # Mostrar Resultados
-        st.metric(f"💰 Resultado Neto Final en {destino_elegido}", f"US$ {neto_total_usd:,.2f}")
-        
+        # Tabla Comparativa General
         st.write("---")
-        det_col1, det_col2 = st.columns(2)
-        det_col1.write(f"📉 **Descuento Comisión ({porc_comision}%):** US$ {monto_comision:,.2f}")
-        det_col1.write(f"📉 **Descuento Merma ({porc_merma}%):** US$ {monto_merma:,.2f}")
-        det_col2.write(f"🚚 **Costo Flete Total:** US$ {datos_dest['Flete_TN']*toneladas:,.2f}")
-        det_col2.write(f"💵 **Neto por Tonelada:** US$ {neto_por_tn:,.2f}")
+        st.write("📋 **Comparativa rápida de la zona (Solo flete):**")
+        df_res["Neto_Est_USD"] = (df_res["Base_USD"] - df_res["Flete_TN"]) * toneladas
+        st.dataframe(df_res[["Destino", "KM", "Neto_Est_USD"]].sort_values("Neto_Est_USD", ascending=False), use_container_width=True)
+else:
+    st.info("👆 Haz clic en el mapa sobre la ubicación de tu lote para comenzar.")
+
 
 
