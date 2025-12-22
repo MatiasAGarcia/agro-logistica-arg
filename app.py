@@ -3,6 +3,7 @@ import pandas as pd
 import folium
 from streamlit_folium import st_folium
 from geopy.distance import geodesic
+import requests
 
 # 1. CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="AgroLogística AR 2025", layout="wide", page_icon="🌾")
@@ -40,9 +41,11 @@ destinos = [
     {"nombre": "Puerto Quequén", "lat": -38.5858, "lon": -58.7131, "operador": "ACA / COFCO"}
 ]
 
-# Crear Mapa centrado en la zona núcleo
+# --- CREACIÓN DEL MAPA CON CAPTURA DE CLIC ---
+# Inicializamos el mapa centrado en Argentina
 m = folium.Map(location=[-34.6, -61.0], zoom_start=6)
 
+# Marcadores de Puertos
 for d in destinos:
     folium.Marker(
         [d['lat'], d['lon']], 
@@ -51,14 +54,18 @@ for d in destinos:
         icon=folium.Icon(color="blue", icon="ship", prefix='fa')
     ).add_to(m)
 
+# Captura de clic
 mapa_data = st_folium(m, width="100%", height=400)
+# ----------------------------------------------
+
 
 # 5. LÓGICA DE CÁLCULO Y COMPARATIVA
 if mapa_data.get("last_clicked"):
     user_lat = mapa_data["last_clicked"]["lat"]
     user_lon = mapa_data["last_clicked"]["lng"]
     
-    st.success(f"📍 Ubicación marcada: {user_lat:.4f}, {user_lon:.4f}")
+    # Agregamos un marcador visual para el lote en el mapa renderizado (feedback visual)
+    st.success(f"📍 Ubicación de tu lote marcada: {user_lat:.4f}, {user_lon:.4f}")
     
     analisis = []
     for d in destinos:
@@ -78,7 +85,7 @@ if mapa_data.get("last_clicked"):
         })
     
     df_comparativo = pd.DataFrame(analisis).sort_values(by="Resultado Total (USD)", ascending=False)
-    mejor_opcion = df_comparativo.iloc[0]
+    mejor_opcion = df_comparativo.iloc
 
     st.subheader("📊 Comparativa de Comercialización")
     st.dataframe(
@@ -134,7 +141,7 @@ if mapa_data.get("last_clicked"):
             st.download_button("Descargar Instrucciones Chofer", resumen_chofer, file_name="hoja_ruta_agro.txt")
 
 else:
-    st.info("👆 Por favor, haz clic en un punto del mapa para calcular la logística desde tu campo.")
+    st.info("👆 Por favor, haz clic en un punto del mapa para calcular la logística desde tu campo. El punto de tu lote aparecerá marcado.")
 
 
 
