@@ -7,3 +7,4 @@ requests
 openpyxl
 yfinance
 requests
+fpdf
