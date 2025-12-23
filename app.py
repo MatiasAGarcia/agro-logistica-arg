@@ -4,6 +4,7 @@ import folium
 from streamlit_folium import st_folium
 from geopy.distance import geodesic
 import requests
+from fpdf import FPDF
 
 # 1. CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="AgroLogística BCR 2025", layout="wide", page_icon="🌾")
@@ -12,19 +13,14 @@ st.set_page_config(page_title="AgroLogística BCR 2025", layout="wide", page_ico
 @st.cache_data(ttl=3600)
 def obtener_datos_mercado_argentino():
     try:
-        # Dólar Divisa BNA (Oficial)
         res_dolar = requests.get("dolarapi.com")
         dolar = float(res_dolar.json()['venta'])
     except:
         dolar = 1450.0  # Referencia BNA Dic 2025
 
     try:
-        # Precios Pizarra BCR en ARS/tn (Dic 2025)
         pizarras_ars = {
-            "Soja": 494000.0,
-            "Maíz": 275400.0,
-            "Trigo": 252350.0,
-            "Girasol": 497500.0
+            "Soja": 494000.0, "Maíz": 275400.0, "Trigo": 252350.0, "Girasol": 497500.0
         }
         precios_usd = {k: round(v / dolar, 2) for k, v in pizarras_ars.items()}
     except:
@@ -56,7 +52,10 @@ with st.sidebar:
     
     st.divider()
     st.header("🚛 Tarifas de Transporte")
-    tarifa_km_ars = st.number_input("Tarifa Flete Largo (ARS/KM)", value=1400, step=50)
+    tarifa_km_ars = st.number_input("Tarifa Flete Largo (ARS/KM)", value=1400.0, step=50.0)
+    # Conversión informativa de la tarifa a USD/KM
+    tarifa_usd_km = tarifa_km_ars / dolar_bna
+    st.caption(f"Equivalente a: US$ {tarifa_usd_km:.4f} por KM")
     
     st.divider()
     precio_usd_base = precios_pizarra[grano_sel]
@@ -83,17 +82,18 @@ if mapa_data.get("last_clicked"):
     u_lat, u_lon = mapa_data["last_clicked"]["lat"], mapa_data["last_clicked"]["lng"]
     resultados = []
     
+    # CORRECCIÓN DE FÓRMULA: (KM * Tarifa_ARS_KM) / (Dolar * Toneladas) = USD/TN
     for p in puertos:
         d = geodesic((u_lat, u_lon), (p['lat'], p['lon'])).kilometers
-        costo_flete_largo = (d * tarifa_km_ars) / dolar_bna 
-        resultados.append({"Destino": p['nombre'], "KM": d, "Flete_Largo_TN": costo_flete_largo, "Base_USD": precio_usd_base})
+        flete_largo_usd_tn = (d * tarifa_km_ars) / (dolar_bna * toneladas)
+        resultados.append({"Destino": p['nombre'], "KM": d, "Flete_Largo_TN": flete_largo_usd_tn, "Base_USD": precio_usd_base})
         
     if not df_acopios.empty:
         for _, row in df_acopios.iterrows():
             d = geodesic((u_lat, u_lon), (row['lat'], row['lon'])).kilometers
             if d <= 50:
-                costo_flete_largo = (d * tarifa_km_ars) / dolar_bna
-                resultados.append({"Destino": row['nombre'], "KM": d, "Flete_Largo_TN": costo_flete_largo, "Base_USD": precio_usd_base - 7.0})
+                flete_largo_usd_tn = (d * tarifa_km_ars) / (dolar_bna * toneladas)
+                resultados.append({"Destino": row['nombre'], "KM": d, "Flete_Largo_TN": flete_largo_usd_tn, "Base_USD": precio_usd_base - 7.0})
 
     if resultados:
         df_res = pd.DataFrame(resultados)
@@ -103,7 +103,6 @@ if mapa_data.get("last_clicked"):
         
         with col_sel:
             opcion_nombre = st.selectbox("Seleccione destino para detallar:", df_res["Destino"].tolist())
-            # CORRECCIÓN DE ACCESO: Buscamos la fila y la convertimos a diccionario
             datos_dest = df_res[df_res["Destino"] == opcion_nombre].iloc[0].to_dict()
             
             st.write(f"**Distancia Calculada:** {datos_dest['KM']:.1f} km")
@@ -121,22 +120,17 @@ if mapa_data.get("last_clicked"):
                 g_paritarias = c1.number_input("Paritarias", value=0.0)
                 g_otros = c2.number_input("Otros Gastos", value=0.0)
 
-        # CÁLCULO FINAL
+        # CÁLCULO FINAL (Consistente con la rentabilidad por lote)
         v_bruto_total = datos_dest['Base_USD'] * toneladas
         desc_porcentual = v_bruto_total * ((p_comision + p_merma) / 100)
         
-        # Suma de fletes y fijos
+        # Gastos fijos por tonelada (incluye el flete largo ya convertido)
         gastos_fijos_tn = datos_dest['Flete_Largo_TN'] + g_flete_corto + g_laboratorio + g_paritarias + g_otros
         desc_fijos_total = gastos_fijos_tn * toneladas
         
         neto_final = v_bruto_total - desc_porcentual - desc_fijos_total
         
         st.metric(f"💰 Margen Neto Final en {opcion_nombre}", f"US$ {neto_final:,.2f}")
-        
-        with st.expander("Ver detalle del cálculo"):
-            st.write(f"Valor Bruto: US$ {v_bruto_total:,.2f}")
-            st.write(f"Descuentos Comerciales (%): - US$ {desc_porcentual:,.2f}")
-            st.write(f"Descuentos Logísticos y Fijos: - US$ {desc_fijos_total:,.2f}")
-else:
-    st.info("👆 Haz clic en el mapa sobre la ubicación de tu lote para comenzar.")
+        st.caption(f"Resultado por tonelada: US$ {neto_final/toneladas:.2f}")
+
 
