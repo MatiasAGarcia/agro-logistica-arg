@@ -112,31 +112,7 @@ if mapa_data.get("last_clicked"):
                     "Base_USD": precio_usd_base - 7.0
                 })
 
-    if resultados:
-        df_res = pd.DataFrame(resultados)
-        st.divider()
-        
-        col_sel, col_gastos = st.columns(2)
-        
-        with col_sel:
-            opcion_nombre = st.selectbox("Seleccione destino para detallar:", df_res["Destino"].tolist())
-            datos_dest = df_res[df_res["Destino"] == opcion_nombre].iloc[0].to_dict()
-            
-            st.write(f"**Distancia Calculada:** {datos_dest['KM']:.1f} km")
-            st.write(f"**Flete Largo Est.:** US$ {datos_dest['Flete_Largo_TN']:.2f} /tn")
-
-        with col_gastos:
-            with st.expander("🛠️ Ajustar Gastos Manuales", expanded=True):
-                c1, c2 = st.columns(2)
-                p_comision = c1.number_input("Comisión (%)", value=2.0, step=0.1)
-                p_merma = c2.number_input("Merma (%)", value=0.5, step=0.1)
-                
-                st.write("**Gastos Fijos (USD/tn)**")
-                g_flete_corto = c1.number_input("Flete Corto", value=0.0)
-                g_laboratorio = c2.number_input("Laboratorio", value=0.1)
-                g_paritarias = c1.number_input("Paritarias", value=0.0)
-                g_otros = c2.number_input("Otros Gastos", value=0.0)
-
+   
         # CÁLCULO FINAL (Consistente con la rentabilidad por lote)
         v_bruto_total = datos_dest['Base_USD'] * toneladas
         desc_porcentual = v_bruto_total * ((p_comision + p_merma) / 100)
@@ -149,6 +125,7 @@ if mapa_data.get("last_clicked"):
         
         st.metric(f"💰 Margen Neto Final en {opcion_nombre}", f"US$ {neto_final:,.2f}")
         st.caption(f"Resultado por tonelada: US$ {neto_final/toneladas:.2f}")
+
 
 
 
