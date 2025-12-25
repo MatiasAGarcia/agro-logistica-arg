@@ -68,10 +68,10 @@ with st.sidebar:
     
     st.divider()
     st.header("🚛 Tarifa de Transporte")
-    # Cambiamos ARS/KM por ARS/TN según su requerimiento
+    # Tarifa de referencia en ARS/TN
     tarifa_referencia_ars = st.number_input("Tarifa de Referencia (ARS/TN)", value=26550.0, step=100.0)
     
-    # CÁLCULO SOLICITADO: ARS/TN dividido Dólar
+    # CÁLCULO SOLICITADO: ARS/TN dividido Dólar BNA
     flete_largo_usd_tn = tarifa_referencia_ars / dolar_bna
     st.metric("Flete Largo Est. (USD/TN)", f"US$ {flete_largo_usd_tn:.2f}")
     
@@ -99,7 +99,6 @@ if mapa_data.get("last_clicked"):
     u_lat, u_lon = mapa_data["last_clicked"]["lat"], mapa_data["last_clicked"]["lng"]
     resultados = []
     
-    # Los puertos siempre usan la tarifa de referencia cargada
     for p in puertos:
         d = geodesic((u_lat, u_lon), (p['lat'], p['lon'])).kilometers
         resultados.append({"Destino": p['nombre'], "KM": d, "Flete_USD_TN": flete_largo_usd_tn, "Base_USD": precio_usd_base})
@@ -107,7 +106,6 @@ if mapa_data.get("last_clicked"):
     for _, row in df_acopios.iterrows():
         d = geodesic((u_lat, u_lon), (row['lat'], row['lon'])).kilometers
         if d <= 50:
-            # Acopios locales: usamos la misma tarifa pero con base -7 USD
             resultados.append({"Destino": row['nombre'], "KM": d, "Flete_USD_TN": flete_largo_usd_tn, "Base_USD": precio_usd_base - 7.0})
 
     if resultados:
@@ -117,6 +115,7 @@ if mapa_data.get("last_clicked"):
         
         with col_sel:
             opcion = st.selectbox("Seleccione destino:", df_res["Destino"].tolist())
+            # Acceso seguro a la fila y conversión a diccionario
             datos_dest = df_res[df_res["Destino"] == opcion].iloc[0].to_dict()
             st.write(f"**Distancia:** {datos_dest['KM']:.1f} km")
             st.write(f"**Costo Flete:** US$ {datos_dest['Flete_USD_TN']:.2f} /tn")
@@ -130,17 +129,19 @@ if mapa_data.get("last_clicked"):
                 g_par = c2.number_input("Paritarias (USD/tn)", value=0.0)
                 g_corto = c1.number_input("Flete Corto (USD/tn)", value=0.0)
 
-        # CÁLCULO FINAL SEGÚN SU LÓGICA
+        # CÁLCULO FINAL CORREGIDO
         valor_bruto = datos_dest['Base_USD'] * toneladas
         desc_porc = valor_bruto * ((p_com + p_mer) / 100)
-        gastos_fijos = (datos_dest['Flete_USD_TN'] + g_lab + g_par + g_corto) * toneladas
-        neto_final = valor_bruto - desc_porcentual - gastos_fijos # Error de nombre corregido abajo
         
-        # Corrección de variable para el cálculo
-        neto_final = valor_bruto - desc_porc - gastos_fijos
+        # Gastos fijos por tonelada (incluye el flete largo calculado)
+        gastos_fijos_usd_tn = datos_dest['Flete_USD_TN'] + g_lab + g_par + g_corto
+        total_gastos_fijos = gastos_fijos_usd_tn * toneladas
+        
+        neto_final = valor_bruto - desc_porc - total_gastos_fijos
         
         st.metric(f"💰 Margen Neto Final en {opcion}", f"US$ {neto_final:,.2f}")
         
         # Botón PDF
         reporte = {"Cereal": grano_sel, "TN": toneladas, "Flete USD/TN": round(datos_dest['Flete_USD_TN'], 2)}
-        st.download_button("Descargar PDF", generar_pdf(reporte, opcion, neto_final), "reporte.pdf")
+        pdf_bytes = generar_pdf(reporte, opcion, neto_final)
+        st.download_button("Descargar PDF", pdf_bytes, "reporte_agro.pdf")
