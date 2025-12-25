@@ -77,23 +77,40 @@ for p in puertos:
 
 mapa_data = st_folium(m, width="100%", height=400)
 
-# 5. LÓGICA DE CÁLCULO
+# --- DENTRO DE LA LÓGICA DE CÁLCULO (Paso 5) ---
 if mapa_data.get("last_clicked"):
     u_lat, u_lon = mapa_data["last_clicked"]["lat"], mapa_data["last_clicked"]["lng"]
     resultados = []
     
-    # CORRECCIÓN DE FÓRMULA: (KM * Tarifa_ARS_KM) / (Dolar * Toneladas) = USD/TN
+    # 1. Calcular el valor de 1 KM en Dólares por Tonelada
+    # Si la tarifa es ARS por KM para un camión, la dividimos por el dólar y por las toneladas
+    costo_un_km_usd_tn = (tarifa_km_ars / dolar_bna) / toneladas
+
+    # Evaluar Puertos
     for p in puertos:
         d = geodesic((u_lat, u_lon), (p['lat'], p['lon'])).kilometers
-        flete_largo_usd_tn = (d * tarifa_km_ars) / (dolar_bna * toneladas)
-        resultados.append({"Destino": p['nombre'], "KM": d, "Flete_Largo_TN": flete_largo_usd_tn, "Base_USD": precio_usd_base})
+        # Flete largo por tonelada = Distancia * Costo de 1 KM en USD/TN
+        flete_largo_usd_tn = d * costo_un_km_usd_tn
+        
+        resultados.append({
+            "Destino": p['nombre'], 
+            "KM": d, 
+            "Flete_Largo_TN": flete_largo_usd_tn, 
+            "Base_USD": precio_usd_base
+        })
         
     if not df_acopios.empty:
         for _, row in df_acopios.iterrows():
             d = geodesic((u_lat, u_lon), (row['lat'], row['lon'])).kilometers
             if d <= 50:
-                flete_largo_usd_tn = (d * tarifa_km_ars) / (dolar_bna * toneladas)
-                resultados.append({"Destino": row['nombre'], "KM": d, "Flete_Largo_TN": flete_largo_usd_tn, "Base_USD": precio_usd_base - 7.0})
+                flete_largo_usd_tn = d * costo_un_km_usd_tn
+                # Acopios suelen tener una base menor que el puerto
+                resultados.append({
+                    "Destino": row['nombre'], 
+                    "KM": d, 
+                    "Flete_Largo_TN": flete_largo_usd_tn, 
+                    "Base_USD": precio_usd_base - 7.0
+                })
 
     if resultados:
         df_res = pd.DataFrame(resultados)
@@ -132,5 +149,6 @@ if mapa_data.get("last_clicked"):
         
         st.metric(f"💰 Margen Neto Final en {opcion_nombre}", f"US$ {neto_final:,.2f}")
         st.caption(f"Resultado por tonelada: US$ {neto_final/toneladas:.2f}")
+
 
 
