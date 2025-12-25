@@ -77,40 +77,48 @@ for p in puertos:
 
 mapa_data = st_folium(m, width="100%", height=400)
 
-# --- DENTRO DE LA LÓGICA DE CÁLCULO (Paso 5) ---
+# 5. LÓGICA DE CÁLCULO
 if mapa_data.get("last_clicked"):
     u_lat, u_lon = mapa_data["last_clicked"]["lat"], mapa_data["last_clicked"]["lng"]
     resultados = []
     
-    # 1. Calcular el valor de 1 KM en Dólares por Tonelada
-    # Si la tarifa es ARS por KM para un camión, la dividimos por el dólar y por las toneladas
-    costo_un_km_usd_tn = (tarifa_km_ars / dolar_bna) / toneladas
-
-    # Evaluar Puertos
+    # CORRECCIÓN DE FÓRMULA: (KM * Tarifa_ARS_KM) / (Dolar * Toneladas) = USD/TN
     for p in puertos:
         d = geodesic((u_lat, u_lon), (p['lat'], p['lon'])).kilometers
-        # Flete largo por tonelada = Distancia * Costo de 1 KM en USD/TN
-        flete_largo_usd_tn = d * costo_un_km_usd_tn
-        
-        resultados.append({
-            "Destino": p['nombre'], 
-            "KM": d, 
-            "Flete_Largo_TN": flete_largo_usd_tn, 
-            "Base_USD": precio_usd_base
-        })
+        flete_largo_usd_tn = (d * tarifa_km_ars) / (dolar_bna * toneladas)
+        resultados.append({"Destino": p['nombre'], "KM": d, "Flete_Largo_TN": flete_largo_usd_tn, "Base_USD": precio_usd_base})
         
     if not df_acopios.empty:
         for _, row in df_acopios.iterrows():
             d = geodesic((u_lat, u_lon), (row['lat'], row['lon'])).kilometers
             if d <= 50:
-                flete_largo_usd_tn = d * costo_un_km_usd_tn
-                # Acopios suelen tener una base menor que el puerto
-                resultados.append({
-                    "Destino": row['nombre'], 
-                    "KM": d, 
-                    "Flete_Largo_TN": flete_largo_usd_tn, 
-                    "Base_USD": precio_usd_base - 7.0
-                })
+                flete_largo_usd_tn = (d * tarifa_km_ars) / (dolar_bna * toneladas)
+                resultados.append({"Destino": row['nombre'], "KM": d, "Flete_Largo_TN": flete_largo_usd_tn, "Base_USD": precio_usd_base - 7.0})
+ if resultados:
+        df_res = pd.DataFrame(resultados)
+        st.divider()
+        
+        col_sel, col_gastos = st.columns(2)
+        
+        with col_sel:
+            opcion_nombre = st.selectbox("Seleccione destino para detallar:", df_res["Destino"].tolist())
+            datos_dest = df_res[df_res["Destino"] == opcion_nombre].iloc[0].to_dict()
+            
+            st.write(f"**Distancia Calculada:** {datos_dest['KM']:.1f} km")
+            st.write(f"**Flete Largo Est.:** US$ {datos_dest['Flete_Largo_TN']:.2f} /tn")
+
+        with col_gastos:
+            with st.expander("🛠️ Ajustar Gastos Manuales", expanded=True):
+                c1, c2 = st.columns(2)
+                p_comision = c1.number_input("Comisión (%)", value=2.0, step=0.1)
+                p_merma = c2.number_input("Merma (%)", value=0.5, step=0.1)
+                
+                st.write("**Gastos Fijos (USD/tn)**")
+                g_flete_corto = c1.number_input("Flete Corto", value=0.0)
+                g_laboratorio = c2.number_input("Laboratorio", value=0.1)
+                g_paritarias = c1.number_input("Paritarias", value=0.0)
+                g_otros = c2.number_input("Otros Gastos", value=0.0)
+
 
    
         # CÁLCULO FINAL (Consistente con la rentabilidad por lote)
@@ -125,6 +133,7 @@ if mapa_data.get("last_clicked"):
         
         st.metric(f"💰 Margen Neto Final en {opcion_nombre}", f"US$ {neto_final:,.2f}")
         st.caption(f"Resultado por tonelada: US$ {neto_final/toneladas:.2f}")
+
 
 
 
