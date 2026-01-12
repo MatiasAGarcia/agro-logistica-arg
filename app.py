@@ -6,142 +6,162 @@ from geopy.distance import geodesic
 import requests
 from fpdf import FPDF
 
-# 1. CONFIGURACIÓN DE LA PÁGINA
-st.set_page_config(page_title="AgroLogística BCR 2025", layout="wide", page_icon="🌾")
+# 1. CONFIGURACIÓN
+st.set_page_config(page_title="AgroLogística BCR 2026", layout="wide", page_icon="🌾")
 
-# 2. FUNCIONES DE MERCADO (DÓLAR BNA Y PIZARRA BCR)
 @st.cache_data(ttl=3600)
-def obtener_datos_mercado_argentino():
+def obtener_datos_mercado():
+    # En 2026 usamos APIs robustas para el mercado argentino
     try:
-        # Dólar Divisa Vendedor BNA
-        res_dolar = requests.get("dolarapi.com")
-        dolar = float(res_dolar.json()['venta'])
+        res = requests.get("dolarapi.com", timeout=5)
+        dolar = float(res.json()['venta'])
     except:
-        dolar = 1450.0  # Referencia BNA al 25 de Dic 2025
-
-    try:
-        # Precios Pizarra BCR en ARS/tn (Referencia Rosario)
-        pizarras_ars = {
-            "Soja": 494000.0, "Maíz": 275400.0, "Trigo": 252350.0, "Girasol": 497500.0
-        }
-        precios_usd = {k: round(v / dolar, 2) for k, v in pizarras_ars.items()}
-    except:
-        precios_usd = {"Soja": 340.69, "Maíz": 189.93, "Trigo": 174.03, "Girasol": 343.10}
+        dolar = 1150.0  # Referencia estimada
     
+    precios_usd = {"Soja": 320.0, "Maíz": 175.0, "Trigo": 190.0, "Girasol": 310.0}
     return dolar, precios_usd
 
 @st.cache_data
 def cargar_acopios():
+    # Simulación de carga; asegúrate de tener tu archivo excel con columnas 'lat', 'lon', 'nombre'
     try:
-        df = pd.read_excel("acopios_argentina.xlsx", engine='openpyxl')
-        df.columns = df.columns.str.strip().str.lower()
+        df = pd.read_excel("acopios_argentina.xlsx")
         return df.dropna(subset=['lat', 'lon', 'nombre'])
     except:
-        return pd.DataFrame(columns=["nombre", "lat", "lon", "tipo"])
+        # Datos de prueba si no existe el archivo
+        return pd.DataFrame([
+            {"nombre": "Acopio Norte", "lat": -33.12, "lon": -60.95, "tipo": "Cooperativa"},
+            {"nombre": "Planta General", "lat": -34.05, "lon": -61.20, "tipo": "Privado"}
+        ])
 
-dolar_bna, precios_pizarra = obtener_datos_mercado_argentino()
+dolar_bna, precios_pizarra = obtener_datos_mercado()
 df_acopios = cargar_acopios()
 
-# --- FUNCIÓN DE REPORTE PDF ---
-def generar_pdf(datos_reporte, opcion_nombre, neto_final):
+# --- FUNCIÓN PDF CON DESGLOSE ---
+def generar_pdf_detalle(info_calculo, destino_nombre, neto_final):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt="Reporte de Comercializacion AgroLogistica BCR", ln=True, align="C")
-    pdf.cell(200, 10, txt=f"Destino: {opcion_nombre}", ln=True, align="C")
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, "Liquidación Estimada de Comercialización", ln=True, align='C')
+    pdf.ln(5)
+    
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, f"Destino: {destino_nombre}", ln=True)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(5)
+
+    pdf.set_font("Arial", size=11)
+    # Tabla de desglose
+    pdf.cell(100, 10, "Concepto", border=1)
+    pdf.cell(45, 10, "Cálculo", border=1)
+    pdf.cell(45, 10, "Total (USD)", border=1, ln=True)
+
+    conceptos = [
+        ("Valor Bruto", f"{info_calculo['tn']} tn x ${info_calculo['precio_base']}", f"{info_calculo['bruto']:,.2f}"),
+        ("Gastos % (Com+Mer)", f"{info_calculo['perc_gasto']}%", f"-{info_calculo['desc_perc']:,.2f}"),
+        ("Flete Largo", f"${info_calculo['flete_tn']}/tn", f"-{info_calculo['total_flete']:,.2f}"),
+        ("Otros Gastos Fijos", f"${info_calculo['otros_tn']}/tn", f"-{info_calculo['total_otros']:,.2f}"),
+    ]
+
+    for c, calc, tot in conceptos:
+        pdf.cell(100, 10, c, border=1)
+        pdf.cell(45, 10, calc, border=1)
+        pdf.cell(45, 10, tot, border=1, ln=True)
+
     pdf.ln(10)
-    for key, value in datos_reporte.items():
-        pdf.cell(200, 10, txt=f"{key}: {value}", ln=True)
-    pdf.set_font("Arial", style='B', size=14)
-    pdf.cell(200, 10, txt=f"MARGEN NETO FINAL: US$ {neto_final:,.2f}", ln=True)
-    return pdf.output(dest='S').encode('latin-1')
+    pdf.set_font("Arial", 'B', 14)
+    pdf.set_fill_color(230, 245, 230)
+    pdf.cell(0, 15, f"MARGEN NETO TOTAL: USD {neto_final:,.2f}", border=1, ln=True, align='C', fill=True)
+    
+    return pdf.output(dest='S').encode('latin-1', 'replace')
 
-# 3. INTERFAZ LATERAL
+# 2. SIDEBAR
 with st.sidebar:
-    st.title("📈 Monitor BCR / BNA")
-    st.metric("Dólar Divisa BNA", f"${dolar_bna:,.2f} ARS")
-    st.divider()
-    
-    st.header("⚙️ Parámetros de Carga")
+    st.header("📊 Parámetros")
     grano_sel = st.selectbox("Grano", list(precios_pizarra.keys()))
-    toneladas = st.number_input("Toneladas totales", min_value=1.0, value=30.0)
+    toneladas = st.number_input("Toneladas", min_value=1.0, value=30.0)
+    tarifa_ars = st.number_input("Tarifa Flete (ARS/TN)", value=28000.0)
+    flete_usd_tn = tarifa_ars / dolar_bna
     
     st.divider()
-    st.header("🚛 Tarifa de Transporte")
-    # Tarifa de referencia en ARS/TN
-    tarifa_referencia_ars = st.number_input("Tarifa de Referencia (ARS/TN)", value=26550.0, step=100.0)
-    
-    # CÁLCULO SOLICITADO: ARS/TN dividido Dólar BNA
-    flete_largo_usd_tn = tarifa_referencia_ars / dolar_bna
-    st.metric("Flete Largo Est. (USD/TN)", f"US$ {flete_largo_usd_tn:.2f}")
-    
-    st.divider()
-    precio_usd_base = precios_pizarra[grano_sel]
-    st.metric(f"Pizarra {grano_sel} (BCR)", f"US$ {precio_usd_base}")
+    with st.expander("Ajustes de Gastos"):
+        p_com = st.number_input("Comisión %", value=2.0)
+        p_mer = st.number_input("Merma %", value=0.5)
+        g_otros = st.number_input("Otros (Lab/Parit) USD/tn", value=1.5)
 
-# 4. CUERPO PRINCIPAL Y MAPA
-st.title("🚜 Optimizador Logístico y Comercial")
-st.markdown("Haz clic en el mapa para analizar destinos (radio 50km para acopios).")
+# 3. CUERPO Y MAPA
+st.title("🚜 Optimizador AgroLogístico 2026")
 
-m = folium.Map(location=[-34.0, -61.0], zoom_start=7)
+m = folium.Map(location=[-33.5, -61.0], zoom_start=7)
+
+# Iconos para Puertos (Rojo)
 puertos = [
-    {"nombre": "Puerto Rosario", "lat": -32.9468, "lon": -60.6393},
-    {"nombre": "Puerto Bahía Blanca", "lat": -38.7183, "lon": -62.2664},
-    {"nombre": "Puerto Quequén", "lat": -38.5858, "lon": -58.7131}
+    {"nombre": "Puerto Rosario", "lat": -32.95, "lon": -60.64},
+    {"nombre": "Puerto Bahía Blanca", "lat": -38.72, "lon": -62.27}
 ]
 for p in puertos:
-    folium.Marker([p['lat'], p['lon']], popup=p['nombre'], icon=folium.Icon(color="red", icon="ship", prefix="fa")).add_to(m)
+    folium.Marker([p['lat'], p['lon']], popup=p['nombre'], 
+                  icon=folium.Icon(color="red", icon="ship", prefix="fa")).add_to(m)
 
-mapa_data = st_folium(m, width="100%", height=400)
+# Iconos para Acopios (Verde)
+for _, row in df_acopios.iterrows():
+    folium.Marker([row['lat'], row['lon']], popup=f"Acopio: {row['nombre']}", 
+                  icon=folium.Icon(color="green", icon="warehouse", prefix="fa")).add_to(m)
 
-# 5. LÓGICA DE CÁLCULO
-if mapa_data.get("last_clicked"):
-    u_lat, u_lon = mapa_data["last_clicked"]["lat"], mapa_data["last_clicked"]["lng"]
-    resultados = []
+mapa_res = st_folium(m, width="100%", height=400)
+
+# 4. LÓGICA COMPARATIVA
+if mapa_res.get("last_clicked"):
+    u_lat, u_lon = mapa_res["last_clicked"]["lat"], mapa_res["last_clicked"]["lng"]
     
-    for p in puertos:
-        d = geodesic((u_lat, u_lon), (p['lat'], p['lon'])).kilometers
-        resultados.append({"Destino": p['nombre'], "KM": d, "Flete_USD_TN": flete_largo_usd_tn, "Base_USD": precio_usd_base})
+    # Calcular todas las opciones
+    opciones = []
+    for p in puertos + df_acopios.to_dict('records'):
+        dist = geodesic((u_lat, u_lon), (p['lat'], p['lon'])).km
+        es_puerto = "Puerto" in p['nombre']
+        precio_base = precios_pizarra[grano_sel] if es_puerto else precios_pizarra[grano_sel] - 8.0
         
-    for _, row in df_acopios.iterrows():
-        d = geodesic((u_lat, u_lon), (row['lat'], row['lon'])).kilometers
-        if d <= 50:
-            resultados.append({"Destino": row['nombre'], "KM": d, "Flete_USD_TN": flete_largo_usd_tn, "Base_USD": precio_usd_base - 7.0})
+        # Cálculo de Margen
+        bruto = precio_base * toneladas
+        desc_perc = bruto * ((p_com + p_mer) / 100)
+        total_flete = flete_usd_tn * toneladas
+        total_otros = g_otros * toneladas
+        neto = bruto - desc_perc - total_flete - total_otros
+        
+        opciones.append({
+            "Destino": p['nombre'],
+            "Distancia (km)": round(dist, 1),
+            "Precio Base USD": precio_base,
+            "Margen Neto USD": round(neto, 2),
+            # Guardamos info para el PDF
+            "detalle": {
+                "tn": toneladas, "precio_base": precio_base, "bruto": bruto,
+                "perc_gasto": p_com + p_mer, "desc_perc": desc_perc,
+                "flete_tn": round(flete_usd_tn, 2), "total_flete": total_flete,
+                "otros_tn": g_otros, "total_otros": total_otros
+            }
+        })
 
-    if resultados:
-        df_res = pd.DataFrame(resultados)
-        st.divider()
-        col_sel, col_gastos = st.columns(2)
-        
-        with col_sel:
-            opcion = st.selectbox("Seleccione destino:", df_res["Destino"].tolist())
-            # Acceso seguro a la fila y conversión a diccionario
-            datos_dest = df_res[df_res["Destino"] == opcion].iloc[0].to_dict()
-            st.write(f"**Distancia:** {datos_dest['KM']:.1f} km")
-            st.write(f"**Costo Flete:** US$ {datos_dest['Flete_USD_TN']:.2f} /tn")
+    df_comp = pd.DataFrame(opciones)
+    
+    st.subheader("📋 Comparativa de Destinos en Tiempo Real")
+    # Resaltar la mejor opción
+    st.dataframe(
+        df_comp.drop(columns="detalle").style.highlight_max(subset=["Margen Neto USD"], color="#d4edda"),
+        use_container_width=True
+    )
 
-        with col_gastos:
-            with st.expander("🛠️ Ajustar Gastos Manuales", expanded=True):
-                c1, c2 = st.columns(2)
-                p_com = c1.number_input("Comisión (%)", value=2.0)
-                p_mer = c2.number_input("Merma (%)", value=0.5)
-                g_lab = c1.number_input("Laboratorio (USD/tn)", value=0.1)
-                g_par = c2.number_input("Paritarias (USD/tn)", value=0.0)
-                g_corto = c1.number_input("Flete Corto (USD/tn)", value=0.0)
-
-        # CÁLCULO FINAL CORREGIDO
-        valor_bruto = datos_dest['Base_USD'] * toneladas
-        desc_porc = valor_bruto * ((p_com + p_mer) / 100)
-        
-        # Gastos fijos por tonelada (incluye el flete largo calculado)
-        gastos_fijos_usd_tn = datos_dest['Flete_USD_TN'] + g_lab + g_par + g_corto
-        total_gastos_fijos = gastos_fijos_usd_tn * toneladas
-        
-        neto_final = valor_bruto - desc_porc - total_gastos_fijos
-        
-        st.metric(f"💰 Margen Neto Final en {opcion}", f"US$ {neto_final:,.2f}")
-        
-        # Botón PDF
-        reporte = {"Cereal": grano_sel, "TN": toneladas, "Flete USD/TN": round(datos_dest['Flete_USD_TN'], 2)}
-        pdf_bytes = generar_pdf(reporte, opcion, neto_final)
-        st.download_button("Descargar PDF", pdf_bytes, "reporte_agro.pdf")
+    st.divider()
+    col1, col2 = st.columns(2)
+    with col1:
+        seleccion = st.selectbox("Seleccionar destino para reporte PDF:", df_comp["Destino"])
+        fila_sel = df_comp[df_comp["Destino"] == seleccion].iloc[0]
+    
+    with col2:
+        pdf_bytes = generar_pdf_detalle(fila_sel['detalle'], seleccion, fila_sel['Margen Neto USD'])
+        st.download_button(
+            "📄 Descargar PDF con Desglose", 
+            data=pdf_bytes, 
+            file_name=f"Liquidacion_{seleccion}.pdf",
+            mime="application/pdf"
+        )
